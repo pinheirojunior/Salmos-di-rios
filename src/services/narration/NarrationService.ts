@@ -6,6 +6,7 @@ class NarrationService {
   private voices: VoiceInfo[] = [];
   private voicesLoadedPromise: Promise<VoiceInfo[]> | null = null;
   private currentAudioElement: HTMLAudioElement | null = null;
+  private audioContext: AudioContext | null = null;
   private activeUtterance: SpeechSynthesisUtterance | null = null;
   private activeMode: 'capacitor' | 'speechSynthesis' | 'audioStream' | null = null;
   
@@ -13,14 +14,22 @@ class NarrationService {
   private currentText = '';
   private currentOptions: NarrationOptions = {};
   
-  // Audio stream chunking state
-  private streamChunks: string[] = [];
+  // Sentence/phrase chunking state for SpeechSynthesis & AudioStream
+  private textChunks: string[] = [];
   private currentChunkIndex = 0;
   private isStopped = false;
+
+  // Timers & Keep-Alive
+  private keepAliveInterval: any = null;
+  private speechStartWatchdogTimer: any = null;
+  private chunkTimeoutTimer: any = null;
+  private isSpeechSynthesisDisabledInWebView = false;
 
   constructor() {
     this.log("Initializing NarrationService...");
     if (typeof window !== "undefined") {
+      const isWebView = this.isAndroidWebView();
+      this.log(`[ENV] Runtime environment: ${isWebView ? "Android WebView (Web Into App / Median / Native)" : "Standard Browser (AI Studio / Chrome / GitHub Pages)"}`);
       this.initVoices();
     }
   }
@@ -38,14 +47,26 @@ class NarrationService {
   }
 
   /**
-   * Asynchronously load and categorize available browser speech voices
+   * Detect if the application is running inside an Android WebView environment
+   */
+  public isAndroidWebView(): boolean {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    const isAndroid = /android/i.test(ua);
+    const isWebViewUa = /wv|\bWebView\b|Version\/[\d.]+|\bgonative\b|\bmedian\b|\bwebintoapp\b|App/i.test(ua);
+    const hasAndroidHostObject = Boolean((window as any).Android) || Boolean((window as any).Median) || Boolean((window as any).GoNative);
+    return isAndroid && (isWebViewUa || hasAndroidHostObject);
+  }
+
+  /**
+   * Asynchronously load and categorize available speech voices
    */
   public async initVoices(): Promise<VoiceInfo[]> {
     if (typeof window === "undefined") return [];
     if (this.voicesLoadedPromise) return this.voicesLoadedPromise;
 
     this.voicesLoadedPromise = new Promise((resolve) => {
-      const fetchAndCategorize = () => {
+      const fetchAndCategorize = (): VoiceInfo[] => {
         if (!("speechSynthesis" in window)) {
           this.log("Web Speech API not supported in this environment.");
           return [];
@@ -101,30 +122,42 @@ class NarrationService {
         return;
       }
 
-      // Handle async voice loading via onvoiceschanged
       if ("speechSynthesis" in window) {
         let resolved = false;
-        const handleVoicesChanged = () => {
+        let pollCount = 0;
+
+        const checkVoices = () => {
           const loaded = fetchAndCategorize();
           if (loaded.length > 0 && !resolved) {
             resolved = true;
             this.voices = loaded;
-            this.log("Voices loaded via onvoiceschanged event.");
+            this.log("Voices loaded successfully.");
             resolve(this.voices);
+            return true;
+          }
+          return false;
+        };
+
+        const handleVoicesChanged = () => {
+          if (checkVoices() && "speechSynthesis" in window) {
+            window.speechSynthesis.onvoiceschanged = null;
           }
         };
 
         window.speechSynthesis.onvoiceschanged = handleVoicesChanged;
 
-        // Fallback timeout if onvoiceschanged never fires
-        setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            this.voices = fetchAndCategorize();
-            this.log("Voice load timeout completed, voices count:", this.voices.length);
-            resolve(this.voices);
+        const pollInterval = setInterval(() => {
+          pollCount++;
+          if (checkVoices() || pollCount >= 4) {
+            clearInterval(pollInterval);
+            if (!resolved) {
+              resolved = true;
+              this.voices = fetchAndCategorize();
+              this.log(`Voice loading finalized after ${pollCount} checks (count: ${this.voices.length}).`);
+              resolve(this.voices);
+            }
           }
-        }, 800);
+        }, 300);
       } else {
         resolve([]);
       }
@@ -134,7 +167,7 @@ class NarrationService {
   }
 
   /**
-   * Get all loaded voices or Portuguese-filtered voices
+   * Get loaded Portuguese or all speech voices
    */
   public async getVoices(ptOnly = false): Promise<VoiceInfo[]> {
     const all = await this.initVoices();
@@ -146,19 +179,48 @@ class NarrationService {
   }
 
   /**
-   * Get currently cached voices synchronously
-   */
-  public getCachedVoices(): VoiceInfo[] {
-    return this.voices;
-  }
-
-  /**
-   * Unlock browser audio playback context on direct user interaction
+   * Unlock browser audio playback context on direct user gesture
    */
   public unlock(): void {
     if (typeof window === "undefined") return;
 
-    this.log("Unlocking audio engine via user gesture...");
+    this.log("[UNLOCK] Unlocking audio & speech context via user interaction...");
+
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        if (!this.audioContext) {
+          this.audioContext = new AudioContextClass();
+        }
+        if (this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
+        const buffer = this.audioContext.createBuffer(1, 1, 22050);
+        const source = this.audioContext.createBufferSource();
+        source.buffer = buffer;
+        source.connect(this.audioContext.destination);
+        source.start(0);
+      }
+    } catch (e) {}
+
+    if (!this.currentAudioElement) {
+      try {
+        this.currentAudioElement = new Audio();
+      } catch (e) {}
+    }
+
+    if (this.currentAudioElement) {
+      try {
+        const silentWav = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        if (!this.currentAudioElement.src) {
+          this.currentAudioElement.src = silentWav;
+        }
+        const p = this.currentAudioElement.play();
+        if (p !== undefined) {
+          p.then(() => {}).catch(() => {});
+        }
+      } catch (e) {}
+    }
 
     if ("speechSynthesis" in window) {
       try {
@@ -166,29 +228,33 @@ class NarrationService {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
-      } catch (e) {
-        this.warn("SpeechSynthesis unlock error:", e);
-      }
-    }
-
-    if (!this.currentAudioElement) {
-      try {
-        this.currentAudioElement = new Audio();
-      } catch (e) {
-        this.warn("Audio element creation error:", e);
-      }
+      } catch (e) {}
     }
   }
 
   /**
-   * Stop all active speech engines immediately (0ms delay)
+   * Stop all active speech engines immediately
    */
   public stop(): void {
-    this.log("Stopping all narration engines...");
+    this.log("⏹️ [STOP] Stopping narration...");
     this.isStopped = true;
     this.state = 'idle';
 
-    // 1. Cancel Web Speech Synthesis
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
+    }
+
+    if (this.speechStartWatchdogTimer) {
+      clearTimeout(this.speechStartWatchdogTimer);
+      this.speechStartWatchdogTimer = null;
+    }
+
+    if (this.chunkTimeoutTimer) {
+      clearTimeout(this.chunkTimeoutTimer);
+      this.chunkTimeoutTimer = null;
+    }
+
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -197,7 +263,6 @@ class NarrationService {
       }
     }
 
-    // 2. Stop HTML5 Audio Element
     if (this.currentAudioElement) {
       try {
         this.currentAudioElement.pause();
@@ -210,23 +275,21 @@ class NarrationService {
       }
     }
 
-    // 3. Stop Native Capacitor Plugin
     try {
       TextToSpeech.stop().catch(() => {});
     } catch (e) {}
 
-    // Cleanup references
     this.activeUtterance = null;
     if (typeof window !== "undefined") {
       (window as any)._activeNarrationUtterance = null;
     }
     this.activeMode = null;
-    this.streamChunks = [];
+    this.textChunks = [];
     this.currentChunkIndex = 0;
   }
 
   /**
-   * Speak a text string with specified options and event handlers
+   * Speak text string with options and handlers
    */
   public async speak(
     text: string,
@@ -246,18 +309,22 @@ class NarrationService {
       return;
     }
 
+    this.log(`🎬 [START] Starting narration: "${sanitized.substring(0, 60)}..."`);
     this.unlock();
     this.state = 'loading';
 
-    // Check if running in a native Capacitor shell
+    await this.initVoices();
+
+    const isWebView = this.isAndroidWebView();
+
+    // Priority 1: Native Mobile Capacitor TextToSpeech (if in native shell)
     const isCapacitor =
       typeof window !== "undefined" &&
       Boolean((window as any).Capacitor?.isNativePlatform?.());
 
-    // Priority 1: Native Mobile Capacitor TextToSpeech
     if (isCapacitor) {
       try {
-        this.log("Attempting speech via Native Capacitor TextToSpeech plugin...");
+        this.log("[NATIVE] Speaking via Native Capacitor TextToSpeech plugin...");
         this.activeMode = 'capacitor';
         this.state = 'speaking';
         if (handlers.onStart) handlers.onStart();
@@ -272,20 +339,24 @@ class NarrationService {
 
         if (!this.isStopped) {
           this.state = 'idle';
+          this.log("✅ [END] Native Capacitor narration finished.");
           if (handlers.onEnd) handlers.onEnd();
         }
         return;
       } catch (err: any) {
-        this.warn("Capacitor TextToSpeech failed, falling back to Web Speech:", err);
+        this.warn("[NATIVE] Capacitor TextToSpeech failed, falling back:", err);
       }
     }
 
-    // Priority 2: Web SpeechSynthesis API
-    const hasSpeechSynthesis = typeof window !== "undefined" && "speechSynthesis" in window;
+    // Priority 2: Web SpeechSynthesis API with Chunking & Keep-Alive
+    const hasSpeechSynthesis =
+      typeof window !== "undefined" &&
+      "speechSynthesis" in window &&
+      !this.isSpeechSynthesisDisabledInWebView;
 
     if (hasSpeechSynthesis) {
       try {
-        this.log("Attempting speech via Web SpeechSynthesis API...");
+        this.log("[TTS] Speaking via Web SpeechSynthesis API...");
         this.activeMode = 'speechSynthesis';
 
         window.speechSynthesis.cancel();
@@ -293,108 +364,180 @@ class NarrationService {
           window.speechSynthesis.resume();
         }
 
-        const utterance = new SpeechSynthesisUtterance(sanitized);
-        utterance.lang = options.lang || "pt-BR";
-        
-        // Majestic pacing for scripture reading
-        const baseRate = options.rate || 1.0;
-        utterance.rate = baseRate * 0.92;
-        
-        // Pitch setting based on gender or option
-        if (options.pitch) {
-          utterance.pitch = options.pitch;
-        } else if (options.gender === "masculine") {
-          utterance.pitch = 0.82;
-        } else {
-          utterance.pitch = 0.83;
-        }
+        // Split text into natural sentence/clause chunks (< 150 chars) to prevent Chrome 15s freeze
+        this.textChunks = this.splitTextIntoNaturalChunks(sanitized, 150);
+        this.currentChunkIndex = 0;
 
-        // Voice selection
-        const loadedVoices = await this.getVoices(true);
-        if (options.voiceName) {
-          const matched = loadedVoices.find((v) => v.name === options.voiceName);
-          if (matched?.nativeVoice) {
-            utterance.voice = matched.nativeVoice;
-          }
-        }
-
-        if (!utterance.voice && loadedVoices.length > 0) {
-          const matchedPt = loadedVoices.find((v) => v.isPt && v.nativeVoice);
-          if (matchedPt?.nativeVoice) {
-            utterance.voice = matchedPt.nativeVoice;
-          }
-        }
-
-        utterance.onstart = () => {
-          this.log("SpeechSynthesis utterance started.");
-          this.state = 'speaking';
-          if (handlers.onStart) handlers.onStart();
-        };
-
-        utterance.onend = () => {
-          this.log("SpeechSynthesis utterance completed.");
-          this.activeUtterance = null;
-          if (typeof window !== "undefined") {
-            (window as any)._activeNarrationUtterance = null;
-          }
-          if (!this.isStopped) {
-            this.state = 'idle';
-            if (handlers.onEnd) handlers.onEnd();
-          }
-        };
-
-        utterance.onerror = (e) => {
-          this.warn("SpeechSynthesis utterance error:", e);
-          this.activeUtterance = null;
-          if (typeof window !== "undefined") {
-            (window as any)._activeNarrationUtterance = null;
-          }
-
-          if (e.error !== "interrupted" && e.error !== "canceled" && !this.isStopped) {
-            this.warn("Web SpeechSynthesis error encountered. Triggering Audio Stream fallback...");
-            this.speakViaAudioStream(sanitized);
-          } else {
-            this.state = 'idle';
-          }
-        };
-
-        // Retain reference on instance and window scope to prevent V8 garbage collection mid-speech
-        this.activeUtterance = utterance;
-        if (typeof window !== "undefined") {
-          (window as any)._activeNarrationUtterance = utterance;
-        }
-
-        window.speechSynthesis.speak(utterance);
-
-        // Watchdog to resolve Chrome/Android stuck speech engine
-        setTimeout(() => {
+        // Start periodic keep-alive interval for Chrome
+        if (this.keepAliveInterval) clearInterval(this.keepAliveInterval);
+        this.keepAliveInterval = setInterval(() => {
           if (
-            !this.isStopped &&
             this.activeMode === 'speechSynthesis' &&
             typeof window !== "undefined" &&
-            "speechSynthesis" in window
+            "speechSynthesis" in window &&
+            window.speechSynthesis.speaking &&
+            !window.speechSynthesis.paused
           ) {
-            if (window.speechSynthesis.paused) {
-              window.speechSynthesis.resume();
-            }
+            window.speechSynthesis.pause();
+            window.speechSynthesis.resume();
           }
-        }, 150);
+        }, 8000);
 
+        this.speakSpeechSynthesisChunk();
         return;
       } catch (err: any) {
-        this.warn("SpeechSynthesis exception thrown, falling back to Audio Stream:", err);
+        this.warn("[TTS] SpeechSynthesis setup failed, falling back to Audio Stream:", err);
       }
     }
 
-    // Priority 3: Serverless Universal HTML5 Audio Stream Fallback (Google TTS)
+    // Priority 3: Fallback Universal HTML5 Audio Stream
     this.speakViaAudioStream(sanitized);
   }
 
   /**
-   * Fallback engine that streams TTS chunks using HTML5 Audio element
+   * Speak the current chunk using Web SpeechSynthesis
+   */
+  private async speakSpeechSynthesisChunk(): Promise<void> {
+    if (this.isStopped) return;
+
+    if (this.currentChunkIndex >= this.textChunks.length) {
+      this.log("✅ [END] SpeechSynthesis narration completed all chunks naturally.");
+      this.state = 'idle';
+      if (this.keepAliveInterval) {
+        clearInterval(this.keepAliveInterval);
+        this.keepAliveInterval = null;
+      }
+      if (!this.isStopped && this.currentEventHandlers?.onEnd) {
+        this.currentEventHandlers.onEnd();
+      }
+      return;
+    }
+
+    const chunkText = this.textChunks[this.currentChunkIndex];
+    if (!chunkText || !chunkText.trim()) {
+      this.currentChunkIndex++;
+      this.speakSpeechSynthesisChunk();
+      return;
+    }
+
+    this.log(`🗣️ [CHUNK ${this.currentChunkIndex + 1}/${this.textChunks.length}] Speaking: "${chunkText}"`);
+
+    const utterance = new SpeechSynthesisUtterance(chunkText.trim());
+    utterance.lang = this.currentOptions.lang || "pt-BR";
+    
+    const baseRate = this.currentOptions.rate || 1.0;
+    utterance.rate = baseRate * 0.92;
+
+    if (this.currentOptions.pitch) {
+      utterance.pitch = this.currentOptions.pitch;
+    } else if (this.currentOptions.gender === "masculine") {
+      utterance.pitch = 0.82;
+    } else {
+      utterance.pitch = 0.83;
+    }
+
+    const loadedVoices = this.voices.length > 0 ? this.voices : await this.getVoices(true);
+    if (this.currentOptions.voiceName) {
+      const matched = loadedVoices.find((v) => v.name === this.currentOptions.voiceName);
+      if (matched?.nativeVoice) {
+        utterance.voice = matched.nativeVoice;
+      }
+    }
+
+    if (!utterance.voice && loadedVoices.length > 0) {
+      const matchedPt = loadedVoices.find((v) => v.isPt && v.nativeVoice);
+      if (matchedPt?.nativeVoice) {
+        utterance.voice = matchedPt.nativeVoice;
+      }
+    }
+
+    let chunkStarted = false;
+
+    utterance.onstart = () => {
+      chunkStarted = true;
+      if (this.speechStartWatchdogTimer) {
+        clearTimeout(this.speechStartWatchdogTimer);
+        this.speechStartWatchdogTimer = null;
+      }
+      this.state = 'speaking';
+      if (this.currentChunkIndex === 0 && this.currentEventHandlers?.onStart) {
+        this.currentEventHandlers.onStart();
+      }
+    };
+
+    utterance.onend = () => {
+      this.log(`[CHUNK END] Chunk ${this.currentChunkIndex + 1}/${this.textChunks.length} finished.`);
+      if (this.speechStartWatchdogTimer) {
+        clearTimeout(this.speechStartWatchdogTimer);
+        this.speechStartWatchdogTimer = null;
+      }
+      this.activeUtterance = null;
+      if (typeof window !== "undefined") {
+        (window as any)._activeNarrationUtterance = null;
+      }
+
+      if (!this.isStopped) {
+        this.currentChunkIndex++;
+        this.speakSpeechSynthesisChunk();
+      }
+    };
+
+    utterance.onerror = (e) => {
+      this.warn(`[CHUNK ERROR] Chunk ${this.currentChunkIndex + 1} error:`, e);
+      if (this.speechStartWatchdogTimer) {
+        clearTimeout(this.speechStartWatchdogTimer);
+        this.speechStartWatchdogTimer = null;
+      }
+      this.activeUtterance = null;
+      if (typeof window !== "undefined") {
+        (window as any)._activeNarrationUtterance = null;
+      }
+
+      if (e.error !== "interrupted" && e.error !== "canceled" && !this.isStopped) {
+        this.currentChunkIndex++;
+        if (this.currentChunkIndex < this.textChunks.length) {
+          this.speakSpeechSynthesisChunk();
+        } else if (this.isAndroidWebView()) {
+          this.isSpeechSynthesisDisabledInWebView = true;
+          this.speakViaAudioStream(this.currentText);
+        } else {
+          this.state = 'error';
+          if (this.currentEventHandlers?.onError) {
+            this.currentEventHandlers.onError(new Error(e.error || "SpeechSynthesis error"));
+          }
+        }
+      } else {
+        this.state = 'idle';
+      }
+    };
+
+    this.activeUtterance = utterance;
+    if (typeof window !== "undefined") {
+      (window as any)._activeNarrationUtterance = utterance;
+    }
+
+    window.speechSynthesis.speak(utterance);
+
+    // Watchdog ONLY for Android WebViews where SpeechSynthesis hangs indefinitely on first start
+    if (this.isAndroidWebView() && this.currentChunkIndex === 0) {
+      this.speechStartWatchdogTimer = setTimeout(() => {
+        if (!chunkStarted && !this.isStopped && this.activeMode === 'speechSynthesis') {
+          this.warn(`[WATCHDOG] SpeechSynthesis start timeout in WebView. Triggering Audio Stream fallback...`);
+          this.isSpeechSynthesisDisabledInWebView = true;
+          try {
+            window.speechSynthesis.cancel();
+          } catch (e) {}
+          this.speakViaAudioStream(this.currentText);
+        }
+      }, 3500);
+    }
+  }
+
+  /**
+   * Fallback engine using HTML5 Audio Stream
    */
   private speakViaAudioStream(text: string): void {
-    this.log("Starting universal HTML5 Audio stream fallback...");
+    this.log("[STREAM] Starting universal HTML5 Audio stream fallback...");
     this.activeMode = 'audioStream';
     this.state = 'speaking';
 
@@ -406,17 +549,22 @@ class NarrationService {
       this.currentAudioElement = new Audio();
     }
 
-    this.streamChunks = this.splitTextIntoChunks(text, 180);
+    this.textChunks = this.splitTextIntoNaturalChunks(text, 180);
     this.currentChunkIndex = 0;
 
-    this.playNextStreamChunk();
+    this.playNextAudioStreamChunk();
   }
 
-  private playNextStreamChunk(): void {
+  private playNextAudioStreamChunk(): void {
     if (this.isStopped) return;
 
-    if (this.currentChunkIndex >= this.streamChunks.length) {
-      this.log("All audio stream chunks completed successfully.");
+    if (this.chunkTimeoutTimer) {
+      clearTimeout(this.chunkTimeoutTimer);
+      this.chunkTimeoutTimer = null;
+    }
+
+    if (this.currentChunkIndex >= this.textChunks.length) {
+      this.log("✅ [END] Audio stream narration finished all chunks naturally.");
       this.state = 'idle';
       if (!this.isStopped && this.currentEventHandlers?.onEnd) {
         this.currentEventHandlers.onEnd();
@@ -424,10 +572,10 @@ class NarrationService {
       return;
     }
 
-    const chunk = this.streamChunks[this.currentChunkIndex];
+    const chunk = this.textChunks[this.currentChunkIndex];
     if (!chunk || !chunk.trim()) {
       this.currentChunkIndex++;
-      this.playNextStreamChunk();
+      this.playNextAudioStreamChunk();
       return;
     }
 
@@ -437,25 +585,37 @@ class NarrationService {
 
     const directTtsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=pt-BR&q=${encodeURIComponent(chunk.trim())}`;
     
-    this.log(`Playing audio chunk ${this.currentChunkIndex + 1}/${this.streamChunks.length}: "${chunk.substring(0, 30)}..."`);
+    this.log(`[STREAM] Playing chunk ${this.currentChunkIndex + 1}/${this.textChunks.length}: "${chunk.substring(0, 35)}..."`);
 
     this.currentAudioElement.pause();
-    this.currentAudioElement.removeAttribute("src");
+    this.currentAudioElement.currentTime = 0;
     this.currentAudioElement.src = directTtsUrl;
+    
+    try {
+      this.currentAudioElement.playbackRate = this.currentOptions.rate || 1.0;
+    } catch (e) {}
 
     this.currentAudioElement.onended = () => {
+      if (this.chunkTimeoutTimer) {
+        clearTimeout(this.chunkTimeoutTimer);
+        this.chunkTimeoutTimer = null;
+      }
       if (!this.isStopped) {
         this.currentChunkIndex++;
-        this.playNextStreamChunk();
+        this.playNextAudioStreamChunk();
       }
     };
 
     this.currentAudioElement.onerror = (e) => {
-      this.warn(`Error playing stream chunk ${this.currentChunkIndex}:`, e);
+      this.warn(`[STREAM] Error playing chunk ${this.currentChunkIndex + 1}:`, e);
+      if (this.chunkTimeoutTimer) {
+        clearTimeout(this.chunkTimeoutTimer);
+        this.chunkTimeoutTimer = null;
+      }
       if (!this.isStopped) {
         this.currentChunkIndex++;
-        if (this.currentChunkIndex < this.streamChunks.length) {
-          this.playNextStreamChunk();
+        if (this.currentChunkIndex < this.textChunks.length) {
+          this.playNextAudioStreamChunk();
         } else {
           this.state = 'error';
           if (this.currentEventHandlers?.onError) {
@@ -465,14 +625,27 @@ class NarrationService {
       }
     };
 
+    this.chunkTimeoutTimer = setTimeout(() => {
+      if (!this.isStopped && this.activeMode === 'audioStream') {
+        this.warn(`[STREAM] Chunk ${this.currentChunkIndex + 1} timeout. Advancing to next chunk.`);
+        this.currentChunkIndex++;
+        this.playNextAudioStreamChunk();
+      }
+    }, 12000);
+
     const playPromise = this.currentAudioElement.play();
     if (playPromise !== undefined) {
       playPromise.catch((err) => {
-        this.warn("Audio play promise rejected:", err);
+        this.warn("[STREAM] Audio play promise rejected:", err);
         if (!this.isStopped) {
-          this.state = 'error';
-          if (this.currentEventHandlers?.onError) {
-            this.currentEventHandlers.onError(err);
+          this.currentChunkIndex++;
+          if (this.currentChunkIndex < this.textChunks.length) {
+            this.playNextAudioStreamChunk();
+          } else {
+            this.state = 'error';
+            if (this.currentEventHandlers?.onError) {
+              this.currentEventHandlers.onError(err);
+            }
           }
         }
       });
@@ -480,19 +653,20 @@ class NarrationService {
   }
 
   /**
-   * Split long text into natural sentence/phrase chunks <= maxLength
+   * Split long text into natural sentence/clause chunks <= maxLength
    */
-  private splitTextIntoChunks(text: string, maxLength = 180): string[] {
+  private splitTextIntoNaturalChunks(text: string, maxLength = 150): string[] {
     const clean = text.replace(/[\r\n]+/g, " ").trim();
     if (!clean) return [];
     if (clean.length <= maxLength) return [clean];
 
-    const sentences = clean.match(/[^.!?;,]+[.!?;,]?/g) || [clean];
+    // Split by sentence delimiters or commas/colons
+    const clauses = clean.match(/[^.!?;,:]+[.!?;,:]?/g) || [clean];
     const chunks: string[] = [];
     let current = "";
 
-    for (const sentence of sentences) {
-      const trimmed = sentence.trim();
+    for (const clause of clauses) {
+      const trimmed = clause.trim();
       if (!trimmed) continue;
       if ((current + " " + trimmed).trim().length <= maxLength) {
         current = (current + " " + trimmed).trim();
@@ -525,7 +699,10 @@ class NarrationService {
    * Pause active narration
    */
   public pause(): void {
-    this.log("Pausing narration...");
+    if (this.state !== 'speaking' && this.state !== 'loading') {
+      return;
+    }
+    this.log("⏸️ [PAUSE] Pausing narration...");
     this.state = 'paused';
 
     if (
@@ -559,8 +736,14 @@ class NarrationService {
    * Resume active narration
    */
   public resume(): void {
-    this.log("Resuming narration...");
+    if (this.state !== 'paused') {
+      this.log(`[RESUME] Ignored resume call because current state is '${this.state}'.`);
+      return;
+    }
+
+    this.log("▶️ [RESUME] Resuming narration...");
     this.unlock();
+    this.state = 'speaking';
 
     if (
       this.activeMode === 'speechSynthesis' &&
@@ -570,24 +753,17 @@ class NarrationService {
       try {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
-          this.state = 'speaking';
-        } else if (!window.speechSynthesis.speaking && this.currentText) {
-          this.speak(this.currentText, this.currentOptions, this.currentEventHandlers || {});
-          return;
+        } else {
+          this.speakSpeechSynthesisChunk();
         }
       } catch (e) {
-        this.warn("Error resuming SpeechSynthesis, re-triggering speak():", e);
-        if (this.currentText) {
-          this.speak(this.currentText, this.currentOptions, this.currentEventHandlers || {});
-          return;
-        }
+        this.warn("Error resuming SpeechSynthesis:", e);
+        this.speakSpeechSynthesisChunk();
       }
     } else if (this.activeMode === 'audioStream' && this.currentAudioElement) {
       try {
-        this.currentAudioElement.play().then(() => {
-          this.state = 'speaking';
-        }).catch((err) => {
-          this.warn("Error resuming HTML5 Audio, re-triggering speak():", err);
+        this.currentAudioElement.play().catch((err) => {
+          this.warn("Error resuming HTML5 Audio:", err);
           if (this.currentText) {
             this.speak(this.currentText, this.currentOptions, this.currentEventHandlers || {});
           }
@@ -597,8 +773,6 @@ class NarrationService {
           this.speak(this.currentText, this.currentOptions, this.currentEventHandlers || {});
         }
       }
-    } else if (this.currentText) {
-      this.speak(this.currentText, this.currentOptions, this.currentEventHandlers || {});
     }
 
     if (this.currentEventHandlers?.onResume) {

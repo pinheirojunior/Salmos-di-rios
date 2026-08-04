@@ -189,15 +189,25 @@ export default function AudioPlayer({
     if (playerState.isPlaying) {
       if (playerState.isPaused) {
         narrationService.pause();
-      } else {
+      } else if (narrationService.getState() === 'paused') {
         narrationService.resume();
       }
     }
   }, [playerState.isPaused, playerState.isPlaying]);
 
-  // Restart current verse if voice configurations change during active playback
+  // Restart current verse only if voice settings actually changed during active playback
+  const settingsRef = useRef(settings);
   useEffect(() => {
-    if (psalm && playerState.isPlaying && !playerState.isPaused) {
+    const prev = settingsRef.current;
+    settingsRef.current = settings;
+
+    const hasChanged =
+      prev.voiceGender !== settings.voiceGender ||
+      prev.preferredVoiceName !== settings.preferredVoiceName ||
+      prev.voiceSpeed !== settings.voiceSpeed ||
+      prev.continuousAudio !== settings.continuousAudio;
+
+    if (hasChanged && psalm && playerState.isPlaying && !playerState.isPaused) {
       speakVerse(playerState.currentVerseIndex);
     }
   }, [settings.voiceGender, settings.preferredVoiceName, settings.voiceSpeed, settings.continuousAudio]);
