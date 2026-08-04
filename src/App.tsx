@@ -15,7 +15,7 @@ import VoicePrompt from "./components/VoicePrompt";
 import Onboarding from "./components/Onboarding";
 import PremiumTab from "./components/PremiumTab";
 import { SimulatedBannerAd, SimulatedInterstitialAd } from "./components/AdMobAds";
-import { narrationEngine } from "./utils/narrationEngine";
+import { narrationService, VoiceInfo } from "./services/narration";
 
 interface DailyPsalmState {
   currentDailyPsalm: number;
@@ -429,7 +429,8 @@ export default function App() {
 
   const handleStartPsalmAudio = async (number: number, verseIndex?: number, isSingleVerseMode?: boolean) => {
     // Immediately stop any active narration across all platform engines (0ms response)
-    narrationEngine.stopAll();
+    narrationService.stop();
+    narrationService.unlock();
 
     // Reset verse index if switching Psalms or if explicitly provided
     let startIdx = verseIndex !== undefined ? verseIndex : playerState.currentVerseIndex;
@@ -502,44 +503,29 @@ export default function App() {
   };
 
   // Setup preference voice gender on first load
-  const handleSetupVoice = (gender: "masculine" | "feminine") => {
+  const handleSetupVoice = async (gender: "masculine" | "feminine") => {
     let bestVoiceName: string | undefined = undefined;
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const voices = window.speechSynthesis.getVoices();
-      const ptVoices = voices.filter(v => v.lang.toLowerCase().startsWith("pt"));
-      const available = ptVoices.length > 0 ? ptVoices : voices;
+    const voices = await narrationService.getVoices(true);
       
-      const getBestVoiceForGender = (g: "masculine" | "feminine", vlist: SpeechSynthesisVoice[]): string | undefined => {
-        if (!vlist || vlist.length === 0) return undefined;
-        const isFemaleTarget = g === "feminine";
-        const scored = vlist.map(voice => {
-          const name = voice.name.toLowerCase();
-          const lang = voice.lang.toLowerCase().replace("_", "-");
-          const femaleKeywords = [
-            "maria", "bruna", "luciana", "heloisa", "zira", "female", "mulher", "feminina", 
-            "francisca", "joana", "samantha", "victoria", "amalia", "clara", "helena"
-          ];
-          const maleKeywords = ["felipe", "daniel", "antonio", "male", "homem", "masculina", "helio"];
-          let isFemale = false;
-          let isMale = false;
-          if (femaleKeywords.some(k => name.includes(k))) isFemale = true;
-          else if (maleKeywords.some(k => name.includes(k))) isMale = true;
-          else if (name.includes("google") && !name.includes("male") && !name.includes("homem")) isFemale = true;
-          else isFemale = true;
-          
-          if (isFemaleTarget !== isFemale) return { name: voice.name, score: -10000 };
-          let score = 0;
-          if (lang.startsWith("pt-br")) score += 1000;
-          else if (lang.startsWith("pt")) score += 200;
-          if (name.includes("natural") || name.includes("neural")) score += 1000;
-          return { name: voice.name, score };
-        });
-        scored.sort((a, b) => b.score - a.score);
-        return scored[0] && scored[0].score > -5000 ? scored[0].name : undefined;
-      };
-      
-      bestVoiceName = getBestVoiceForGender(gender, available);
-    }
+    const getBestVoiceForGender = (g: "masculine" | "feminine", vlist: VoiceInfo[]): string | undefined => {
+      if (!vlist || vlist.length === 0) return undefined;
+      const isFemaleTarget = g === "feminine";
+      const scored = vlist.map(voice => {
+        const name = voice.name.toLowerCase();
+        const lang = voice.lang.toLowerCase().replace("_", "-");
+        
+        if (isFemaleTarget !== voice.isFemale) return { name: voice.name, score: -10000 };
+        let score = 0;
+        if (lang.startsWith("pt-br")) score += 1000;
+        else if (lang.startsWith("pt")) score += 200;
+        if (name.includes("natural") || name.includes("neural")) score += 1000;
+        return { name: voice.name, score };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      return scored[0] && scored[0].score > -5000 ? scored[0].name : undefined;
+    };
+    
+    bestVoiceName = getBestVoiceForGender(gender, voices);
 
     setSettings(prev => ({
       ...prev,

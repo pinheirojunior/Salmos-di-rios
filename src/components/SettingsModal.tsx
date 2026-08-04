@@ -4,6 +4,7 @@ import { AppSettings, ThemeMode, VoiceGender } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import PrivacyPolicyModal from "./PrivacyPolicyModal";
 import AboutModal from "./AboutModal";
+import { narrationService, VoiceInfo } from "../services/narration";
 
 interface SettingsModalProps {
   settings: AppSettings;
@@ -23,81 +24,47 @@ export default function SettingsModal({
   isInline = false,
 }: SettingsModalProps) {
   const [tempName, setTempName] = useState(settings.userName || "");
-  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
 
-  const getBestVoiceForGender = (gender: "masculine" | "feminine", voices: SpeechSynthesisVoice[]): string | undefined => {
+  const getBestVoiceForGender = (gender: "masculine" | "feminine", voices: VoiceInfo[]): string | undefined => {
     if (!voices || voices.length === 0) return undefined;
     const isFemaleTarget = gender === "feminine";
-    
-    const scored = voices.map(voice => {
+
+    const scored = voices.map((voice) => {
       const name = voice.name.toLowerCase();
       const lang = voice.lang.toLowerCase().replace("_", "-");
-      
-      const femaleKeywords = [
-        "maria", "bruna", "luciana", "heloisa", "zira", "female", "mulher", "feminina", 
-        "francisca", "joana", "samantha", "victoria", "amalia", "clara", "helena"
-      ];
-      const maleKeywords = [
-        "felipe", "daniel", "antonio", "male", "homem", "masculina", "helio"
-      ];
-      
-      let isFemale = false;
-      let isMale = false;
-      
-      if (femaleKeywords.some(k => name.includes(k))) {
-        isFemale = true;
-      } else if (maleKeywords.some(k => name.includes(k))) {
-        isMale = true;
-      } else {
-        if (name.includes("google") && !name.includes("male") && !name.includes("homem")) {
-          isFemale = true;
-        } else {
-          isFemale = true; 
-        }
-      }
-      
-      const matchesGender = isFemaleTarget ? isFemale : (!isFemale || isMale);
+
+      const matchesGender = isFemaleTarget ? voice.isFemale : !voice.isFemale;
       if (!matchesGender) {
         return { name: voice.name, score: -10000 };
       }
-      
+
       let score = 0;
-      if (lang.startsWith("pt-br")) {
-        score += 1000;
-      } else if (lang.startsWith("pt")) {
-        score += 200;
-      }
-      
+      if (lang.startsWith("pt-br")) score += 1000;
+      else if (lang.startsWith("pt")) score += 200;
+
       if (name.includes("natural")) score += 1000;
       if (name.includes("neural")) score += 1000;
       if (name.includes("online")) score += 800;
       if (name.includes("google")) score += 400;
-      if (name.includes("luciana") || name.includes("joana") || name.includes("samantha") || name.includes("felipe") || name.includes("daniel")) {
-        score += 300;
-      }
-      if (name.includes("francisca") || name.includes("antonio")) {
-        score += 250;
-      }
-      if (name.includes("zira")) score -= 600;
-      if (name.includes("heloisa")) score -= 500;
-      
+
       return { name: voice.name, score };
     });
-    
+
     scored.sort((a, b) => b.score - a.score);
     return scored[0] && scored[0].score > -5000 ? scored[0].name : undefined;
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      const loadVoices = () => {
-        const voices = window.speechSynthesis.getVoices();
-        const ptVoices = voices.filter(v => v.lang.toLowerCase().startsWith("pt"));
-        setAvailableVoices(ptVoices.length > 0 ? ptVoices : voices);
-      };
-      loadVoices();
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-    }
+    let isMounted = true;
+    narrationService.getVoices(true).then((voices) => {
+      if (isMounted) {
+        setAvailableVoices(voices);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const [nameSaved, setNameSaved] = useState(false);
