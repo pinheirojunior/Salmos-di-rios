@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Salmo do Dia</string>
+    <string name="title_activity_main">Salmo do Dia</string>
+    <string name="package_name">com.salmododia.app</string>
+    <string name="custom_url_scheme">com.salmododia.app</string>
+</resources>

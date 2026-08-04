@@ -15,6 +15,7 @@ import VoicePrompt from "./components/VoicePrompt";
 import Onboarding from "./components/Onboarding";
 import PremiumTab from "./components/PremiumTab";
 import { SimulatedBannerAd, SimulatedInterstitialAd } from "./components/AdMobAds";
+import { narrationEngine } from "./utils/narrationEngine";
 
 interface DailyPsalmState {
   currentDailyPsalm: number;
@@ -427,14 +428,8 @@ export default function App() {
   };
 
   const handleStartPsalmAudio = async (number: number, verseIndex?: number, isSingleVerseMode?: boolean) => {
-    // Immediately cancel any active speech synthesis so old narration stops instantly (0ms response)
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (e) {
-        console.error("Error canceling speech on play:", e);
-      }
-    }
+    // Immediately stop any active narration across all platform engines (0ms response)
+    narrationEngine.stopAll();
 
     // Reset verse index if switching Psalms or if explicitly provided
     let startIdx = verseIndex !== undefined ? verseIndex : playerState.currentVerseIndex;

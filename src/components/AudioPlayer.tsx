@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Play, Pause, Square, SkipForward, SkipBack, Volume2, ChevronUp, ChevronDown, Sparkles, X, RotateCcw } from "lucide-react";
 import { Psalm, AppSettings, PlayerState } from "../types";
 import { motion, AnimatePresence } from "motion/react";
+import { narrationEngine } from "../utils/narrationEngine";
 
 interface AudioPlayerProps {
   psalm: Psalm | null;
@@ -42,9 +43,7 @@ export default function AudioPlayer({
     }
 
     return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
+      narrationEngine.stopAll();
     };
   }, []);
 
@@ -258,62 +257,34 @@ export default function AudioPlayer({
   // Automatically speak when player state changes to playing (especially on mount or psalm change)
   useEffect(() => {
     if (psalm && playerState.isPlaying && !playerState.isPaused) {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        const hasPsalmChanged = lastPsalmRef.current !== playerState.currentPsalmNumber;
-        lastPsalmRef.current = playerState.currentPsalmNumber;
+      const hasPsalmChanged = lastPsalmRef.current !== playerState.currentPsalmNumber;
+      lastPsalmRef.current = playerState.currentPsalmNumber;
 
-        // If the psalm changed, or if we aren't already speaking, speak immediately.
-        // This is crucial because when changing pages, speaking might briefly be true,
-        // and we must interrupt and speak the new psalm immediately.
-        if (hasPsalmChanged || !window.speechSynthesis.speaking) {
-          speakVerse(playerState.currentVerseIndex);
-        }
+      // If the psalm changed or if starting fresh, speak immediately
+      if (hasPsalmChanged) {
+        speakVerse(playerState.currentVerseIndex);
       }
     } else {
       lastPsalmRef.current = playerState.currentPsalmNumber;
     }
   }, [playerState.currentPsalmNumber, playerState.isPlaying, playerState.isPaused]);
 
-  // Stop window.speechSynthesis immediately when playback is turned off
+  // Stop narration immediately when playback is turned off
   useEffect(() => {
     if (!playerState.isPlaying) {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        try {
-          window.speechSynthesis.cancel();
-        } catch (e) {
-          console.error("Error canceling SpeechSynthesis on play state change:", e);
-        }
-      }
+      narrationEngine.stopAll();
     }
   }, [playerState.isPlaying]);
 
-  // Sync window.speechSynthesis pause/resume with playerState.isPaused changes from outside (e.g., ImmersiveReader)
+  // Sync pause/resume with playerState.isPaused
   useEffect(() => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    
     if (playerState.isPlaying) {
       if (playerState.isPaused) {
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          try {
-            window.speechSynthesis.pause();
-          } catch (e) {
-            console.error("Error pausing synthesis:", e);
-          }
-        }
+        narrationEngine.pause();
       } else {
-        if (window.speechSynthesis.paused) {
-          try {
-            window.speechSynthesis.resume();
-            // Fallback check if browser fails to resume or gets stuck
-            setTimeout(() => {
-              if (window.speechSynthesis.paused) {
-                speakVerse(playerState.currentVerseIndex);
-              }
-            }, 100);
-          } catch (e) {
-            speakVerse(playerState.currentVerseIndex);
-          }
-        }
+        const verse = psalm?.verses[playerState.currentVerseIndex];
+        const textToSpeak = verse ? verse.text : "";
+        narrationEngine.resume(textToSpeak);
       }
     }
   }, [playerState.isPaused, playerState.isPlaying]);
@@ -321,76 +292,59 @@ export default function AudioPlayer({
   // Restart current verse immediately if voice configurations change during active playback
   useEffect(() => {
     if (psalm && playerState.isPlaying && !playerState.isPaused) {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        speakVerse(playerState.currentVerseIndex);
-      }
+      speakVerse(playerState.currentVerseIndex);
     }
   }, [settings.voiceGender, settings.preferredVoiceName, settings.voiceSpeed, settings.continuousAudio]);
 
   const speakVerse = (index: number) => {
-    if (!psalm || typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    if (!psalm) return;
 
-    try {
-      window.speechSynthesis.cancel();
-    } catch (e) {
-      console.error("Error canceling SpeechSynthesis:", e);
-    }
+    narrationEngine.stopAll();
 
     if (index >= psalm.verses.length) {
       stopPlayback();
       return;
     }
 
-    // Small delay (60ms) before starting new utterance to allow browser Speech Engine to fully clear queue
-    setTimeout(() => {
-      const verse = psalm.verses[index];
-      
-      // Natural phrasing structure with support for Continuous Audio Mode
-      let textToSpeak = "";
-      if (settings.continuousAudio) {
-        if (index === 0) {
-          textToSpeak = `Salmo ${psalm.number}. ${verse.text}`;
-        } else {
-          textToSpeak = verse.text;
-        }
+    const verse = psalm.verses[index];
+    
+    // Natural phrasing structure with support for Continuous Audio Mode
+    let textToSpeak = "";
+    if (settings.continuousAudio) {
+      if (index === 0) {
+        textToSpeak = `Salmo ${psalm.number}. ${verse.text}`;
       } else {
-        if (playerState.isSingleVerseMode) {
-          textToSpeak = `Salmo ${psalm.number}, versículo ${verse.number}. ${verse.text}`;
-        } else if (index === 0) {
-          textToSpeak = `Salmo ${psalm.number}. ${psalm.title}. Versículo ${verse.number}. ${verse.text}`;
-        } else {
-          textToSpeak = `Versículo ${verse.number}. ${verse.text}`;
-        }
+        textToSpeak = verse.text;
       }
-
-      const utterance = new SpeechSynthesisUtterance(textToSpeak);
-      utterance.lang = "pt-BR"; // Guarantee Brazilian Portuguese voice selection
-      utteranceRef.current = utterance;
-      
-      // Hold reference on global window scope to protect from browser garbage collection
-      (window as any)._activeUtterance = utterance;
-
-      // Apply voice configurations
-      const voice = selectVoice();
-      if (voice) {
-        utterance.voice = voice;
-      }
-      
-      // Peaceful, stately narrating rate (prophetic Cid Moreira tempo)
-      const baseRate = settings.voiceSpeed || 1.0;
-      utterance.rate = baseRate * 0.92; // Slightly more paced and majestic for deep reflection
-      
-      // Pitch configuration for natural, serene, and deep voices
-      if (settings.voiceGender === "masculine") {
-        utterance.pitch = 0.82; // Calm, deep masculine tone
+    } else {
+      if (playerState.isSingleVerseMode) {
+        textToSpeak = `Salmo ${psalm.number}, versículo ${verse.number}. ${verse.text}`;
+      } else if (index === 0) {
+        textToSpeak = `Salmo ${psalm.number}. ${psalm.title}. Versículo ${verse.number}. ${verse.text}`;
       } else {
-        // Firm, deep, peaceful prophetic feminine tone (like a female Cid Moreira)
-        // Lowering pitch to 0.82 removes the high-pitched "GPS" metallic frequency and gives a rich, steady resonance
-        utterance.pitch = 0.83; 
+        textToSpeak = `Versículo ${verse.number}. ${verse.text}`;
       }
+    }
 
-      utterance.onend = () => {
-        (window as any)._activeUtterance = null;
+    onUpdatePlayerState({
+      currentPsalmNumber: psalm.number,
+      currentVerseIndex: index,
+      isPlaying: true,
+      isPaused: false,
+    });
+
+    const voice = selectVoice();
+
+    narrationEngine.speak(
+      textToSpeak,
+      {
+        lang: "pt-BR",
+        rate: settings.voiceSpeed || 1.0,
+        pitch: settings.voiceGender === "masculine" ? 0.82 : 0.83,
+        voiceName: voice?.name || settings.preferredVoiceName,
+      },
+      () => {
+        // On end
         if (playerState.isSingleVerseMode) {
           stopPlayback();
         } else {
@@ -402,55 +356,22 @@ export default function AudioPlayer({
             speakVerse(nextIdx);
           }
         }
-      };
-
-      utterance.onerror = (e) => {
-        (window as any)._activeUtterance = null;
-        console.warn("Speech synthesis error", e);
-        if (e.error !== "interrupted") {
-          stopPlayback();
-        }
-      };
-
-      onUpdatePlayerState({
-        currentPsalmNumber: psalm.number,
-        currentVerseIndex: index,
-        isPlaying: true,
-        isPaused: false,
-      });
-
-      window.speechSynthesis.speak(utterance);
-    }, 60);
+      },
+      (err) => {
+        console.warn("Narration error", err);
+        stopPlayback();
+      }
+    );
   };
 
   const handlePlayPause = () => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      alert("A síntese de voz não é suportada neste navegador.");
-      return;
-    }
-
     if (playerState.isPlaying) {
       if (playerState.isPaused) {
-        try {
-          window.speechSynthesis.resume();
-          // Workaround for Chrome/Android where resume() sometimes remains locked or silent
-          setTimeout(() => {
-            if (window.speechSynthesis.paused) {
-              speakVerse(playerState.currentVerseIndex);
-            } else {
-              onUpdatePlayerState({ isPaused: false });
-            }
-          }, 150);
-        } catch (e) {
-          speakVerse(playerState.currentVerseIndex);
-        }
+        narrationEngine.resume();
+        onUpdatePlayerState({ isPaused: false });
       } else {
-        try {
-          window.speechSynthesis.pause();
-          onUpdatePlayerState({ isPaused: true });
-        } catch (e) {
-          console.error("Error pausing:", e);
-        }
+        narrationEngine.pause();
+        onUpdatePlayerState({ isPaused: true });
       }
     } else {
       speakVerse(playerState.currentVerseIndex);
@@ -458,9 +379,7 @@ export default function AudioPlayer({
   };
 
   const stopPlayback = () => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
+    narrationEngine.stopAll();
     if (timerRef.current) {
       clearInterval(timerRef.current);
     }
