@@ -219,7 +219,7 @@ export default function ImmersiveReader({
                   verseRefs.current[index] = el;
                 }}
                 id={`reader-verse-${verse.number}`}
-                className={`p-4 rounded-2xl transition-all duration-300 flex items-center gap-4 border border-transparent ${
+                className={`p-3.5 sm:p-4 rounded-2xl transition-all duration-300 flex items-start gap-3 sm:gap-4 border border-transparent ${
                   isActive
                     ? "bg-amber-500/10 dark:bg-amber-950/30 border-l-4 border-l-gold-accent border-gold-accent/20 shadow-sm translate-x-1"
                     : "hover:bg-black/[0.01] dark:hover:bg-white/[0.01]"
@@ -229,12 +229,12 @@ export default function ImmersiveReader({
                 }}
               >
                 {/* Verse numbering */}
-                <span className="font-mono text-xs font-semibold text-gold-accent select-none w-6 text-right flex-shrink-0">
+                <span className="font-mono text-xs font-semibold text-gold-accent select-none w-6 text-right flex-shrink-0 pt-1">
                   {verse.number}
                 </span>
 
                 {/* Verse text content */}
-                <p className={`flex-1 text-gray-800 dark:text-gray-200 transition-all ${getFontSizeClass()}`}>
+                <p className={`flex-1 text-gray-800 dark:text-gray-200 transition-all break-words ${getFontSizeClass()}`}>
                   {verse.text}
                 </p>
 

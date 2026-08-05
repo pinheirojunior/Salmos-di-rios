@@ -322,9 +322,9 @@ export default function DigitalBook({
                     </div>
 
                     {/* Verses reader inside the book */}
-                    <div className="space-y-5 font-serif text-gray-700 dark:text-gray-300 leading-relaxed max-h-[250px] overflow-y-auto pr-2 scrollbar-thin select-text">
+                    <div className="space-y-5 font-serif text-gray-700 dark:text-gray-300 leading-relaxed max-h-[280px] sm:max-h-[350px] overflow-y-auto pr-2 scrollbar-thin select-text break-words">
                       {psalmData.verses.map((verse) => (
-                        <p key={verse.number} className={getFontSizeClass()}>
+                        <p key={verse.number} className={`${getFontSizeClass()} break-words`}>
                           <span className="font-mono text-[10px] font-bold text-gold-accent mr-2 bg-gold-cream dark:bg-slate-800 px-1.5 py-0.5 rounded-full select-none">
                             {verse.number}
                           </span>
@@ -335,25 +335,25 @@ export default function DigitalBook({
                   </div>
 
                   {/* Actions under reading page */}
-                  <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gold-accent/10 dark:border-gray-800">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-4 border-t border-gold-accent/10 dark:border-gray-800">
                     {onStartAudio && (
                       <button
                         id="book-page-start-audio-btn"
                         onClick={() => onStartAudio(selectedChapter)}
-                        className="w-full py-2.5 bg-white dark:bg-slate-800 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-700 rounded-xl text-xs font-display font-bold border border-gold-accent/25 dark:border-gray-700 shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        className="w-full min-h-[44px] py-2.5 px-3 bg-white dark:bg-slate-800 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-700 rounded-xl text-xs font-display font-bold border border-gold-accent/25 dark:border-gray-700 shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center leading-tight"
                       >
-                        <Volume2 className="w-3.5 h-3.5" />
-                        Ouvir Narração
+                        <Volume2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Ouvir Narração</span>
                       </button>
                     )}
 
                     <button
                       id="book-page-immersive-reader-btn"
                       onClick={() => onOpenImmersiveReader(selectedChapter)}
-                      className={`py-2.5 bg-[#d4af37] text-[#231209] hover:bg-[#c19d2f] rounded-xl text-xs font-display font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${onStartAudio ? "w-full" : "col-span-2"}`}
+                      className={`min-h-[44px] py-2.5 px-3 bg-[#d4af37] text-[#231209] hover:bg-[#c19d2f] rounded-xl text-xs font-display font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center leading-tight ${onStartAudio ? "w-full" : "col-span-1 sm:col-span-2"}`}
                     >
-                      <Layers className="w-3.5 h-3.5" />
-                      Modo Imersivo
+                      <Layers className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Modo Imersivo</span>
                     </button>
                   </div>
                 </motion.div>

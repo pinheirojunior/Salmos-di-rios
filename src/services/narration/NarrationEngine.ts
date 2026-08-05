@@ -1,4 +1,6 @@
-import { VoiceGender, Psalm, Verse } from "../../types";
+import { TextToSpeech } from "@capacitor-community/text-to-speech";
+import { Capacitor } from "@capacitor/core";
+import { VoiceGender, Psalm } from "../../types";
 
 export interface NarrationOptions {
   gender: VoiceGender;
@@ -18,7 +20,7 @@ class NarrationEngine {
   private synth: SpeechSynthesis | null = null;
   private voices: SpeechSynthesisVoice[] = [];
   private currentSessionId = 0;
-  
+
   private isPlaying = false;
   private isPaused = false;
   private currentPsalm: Psalm | null = null;
@@ -31,13 +33,18 @@ class NarrationEngine {
 
   private listeners: Set<NarrationEventCallback> = new Set();
   private onFinishCallback: (() => void) | null = null;
+  private isTitleSpoken = false;
 
   constructor() {
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
-      this.synth = window.speechSynthesis;
-      this.loadVoices();
-      if (this.synth.onvoiceschanged !== undefined) {
-        this.synth.onvoiceschanged = () => this.loadVoices();
+      try {
+        this.synth = window.speechSynthesis;
+        this.loadVoices();
+        if (this.synth.onvoiceschanged !== undefined) {
+          this.synth.onvoiceschanged = () => this.loadVoices();
+        }
+      } catch (e) {
+        console.warn("Web SpeechSynthesis initialization error:", e);
       }
     }
   }
@@ -59,24 +66,21 @@ class NarrationEngine {
   }
 
   /**
-   * Selects the optimal voice for pt-BR based on gender preference.
+   * Selects optimal voice and pitch for pt-BR based on gender preference for Web SpeechSynthesis.
    */
   private selectBestVoice(gender: VoiceGender): { voice: SpeechSynthesisVoice | null; pitch: number } {
     const allVoices = this.getAvailableVoices();
     const isFemale = gender === "feminine";
 
-    // Filter Portuguese voices first, fallback to all voices if none found
     const ptVoices = allVoices.filter((v) =>
       v.lang.toLowerCase().startsWith("pt")
     );
     const candidateVoices = ptVoices.length > 0 ? ptVoices : allVoices;
 
     if (candidateVoices.length === 0) {
-      // Default pitch adjustments if no browser voices listed yet
       return { voice: null, pitch: isFemale ? 1.05 : 0.88 };
     }
 
-    // Try finding gender matches by voice name
     const genderKeywords = isFemale
       ? ["female", "feminina", "mulher", "maria", "vitoria", "bruna", "luciana", "heloisa", "zira", "samantha", "clara", "helena"]
       : ["male", "masculina", "homem", "ricardo", "felipe", "daniel", "antonio", "jorge", "joao"];
@@ -90,11 +94,10 @@ class NarrationEngine {
       return { voice: matchedVoice, pitch: isFemale ? 1.0 : 0.92 };
     }
 
-    // Secondary fallback: pick pt-BR voice
     const ptBrVoice = candidateVoices.find((v) => v.lang.toLowerCase().includes("br")) || candidateVoices[0];
     return {
       voice: ptBrVoice,
-      pitch: isFemale ? 1.08 : 0.88, // Pitch modulation ensures clear distinction
+      pitch: isFemale ? 1.08 : 0.88,
     };
   }
 
@@ -105,22 +108,15 @@ class NarrationEngine {
     let cleaned = text;
 
     if (removeVerseNumbers) {
-      // Remove verse number markers like "1.", "1 ", "(1)", "1 - "
       cleaned = cleaned.replace(/^\(?\d+\)?[\.\s\-]+/, "");
     }
 
-    // Remove any unexpected inline verse tags or bracket markers
     cleaned = cleaned.replace(/\[\d+\]/g, "").replace(/\(\d+\)/g, "");
-
-    // Trim and normalize multiple spaces
     cleaned = cleaned.replace(/\s+/g, " ").trim();
 
     return cleaned;
   }
 
-  /**
-   * Subscribe to narration state changes
-   */
   public subscribe(callback: NarrationEventCallback): () => void {
     this.listeners.add(callback);
     this.emitState();
@@ -148,18 +144,13 @@ class NarrationEngine {
     return this.options;
   }
 
-  /**
-   * Start narrating a Psalm
-   */
-  private isTitleSpoken = false;
-
   public start(
     psalm: Psalm,
     startVerseIndex = 0,
     options: NarrationOptions,
     onFinish?: () => void
   ): void {
-    this.stop(); // Stop any active session immediately
+    this.stop();
 
     this.currentSessionId += 1;
     const sessionId = this.currentSessionId;
@@ -181,9 +172,6 @@ class NarrationEngine {
     }
   }
 
-  /**
-   * Speak a single verse (or single verse mode)
-   */
   public startSingleVerse(
     psalm: Psalm,
     verseIndex: number,
@@ -217,16 +205,11 @@ class NarrationEngine {
     });
   }
 
-  /**
-   * Internal verse-by-verse playback sequence (Modo 1 - Leitura Normal)
-   * Announces "Salmo X." at start, and "Versículo Y. [texto]" for each verse.
-   */
   private speakVerseByVerse(sessionId: number): void {
     if (sessionId !== this.currentSessionId || !this.currentPsalm || !this.isPlaying) return;
 
     const verses = this.currentPsalm.verses;
 
-    // Announce Psalm chapter title at start of reading
     if (this.currentVerseIndex === 0 && !this.isTitleSpoken) {
       this.isTitleSpoken = true;
       const titleText = `Salmo ${this.currentPsalm.number}.`;
@@ -248,7 +231,6 @@ class NarrationEngine {
 
     const currentVerse = verses[this.currentVerseIndex];
     const cleanVerseText = this.prepareText(currentVerse.text, true);
-    // Announce verse number then text: "Versículo X. [texto]"
     const textToSpeak = `Versículo ${currentVerse.number}. ${cleanVerseText}`;
 
     this.speakUtterance(textToSpeak, sessionId, () => {
@@ -257,7 +239,6 @@ class NarrationEngine {
       if (this.currentVerseIndex < verses.length - 1) {
         this.currentVerseIndex += 1;
         this.emitState();
-        // Brief natural devotional pause between verses (350ms)
         setTimeout(() => {
           if (sessionId === this.currentSessionId && this.isPlaying && !this.isPaused) {
             this.speakVerseByVerse(sessionId);
@@ -269,16 +250,11 @@ class NarrationEngine {
     });
   }
 
-  /**
-   * Internal continuous audiobook-style playback (Modo 2 - Áudio Contínuo)
-   * Announces "Salmo X." at start, then reads text of verses fluently without announcing verse numbers.
-   */
   private speakContinuous(sessionId: number): void {
     if (sessionId !== this.currentSessionId || !this.currentPsalm || !this.isPlaying) return;
 
     const verses = this.currentPsalm.verses;
 
-    // Announce Psalm chapter title at start of reading if starting at verse 0
     if (this.currentVerseIndex === 0 && !this.isTitleSpoken) {
       this.isTitleSpoken = true;
       const titleText = `Salmo ${this.currentPsalm.number}.`;
@@ -299,7 +275,6 @@ class NarrationEngine {
     }
 
     const currentVerse = verses[this.currentVerseIndex];
-    // Clean text without verse number prefix and WITHOUT saying "Versículo X."
     const textToSpeak = this.prepareText(currentVerse.text, true);
 
     this.speakUtterance(textToSpeak, sessionId, () => {
@@ -308,7 +283,6 @@ class NarrationEngine {
       if (this.currentVerseIndex < verses.length - 1) {
         this.currentVerseIndex += 1;
         this.emitState();
-        // Fluid minimal pause between verses in continuous mode
         setTimeout(() => {
           if (sessionId === this.currentSessionId && this.isPlaying && !this.isPaused) {
             this.speakContinuous(sessionId);
@@ -321,20 +295,75 @@ class NarrationEngine {
   }
 
   /**
-   * Speaks a chunk of text using SpeechSynthesis with fallback handling
+   * Speaks a chunk of text using Capacitor Native Text-To-Speech (on Android/iOS)
+   * or Web SpeechSynthesis (fallback in browsers).
    */
   private speakUtterance(
     text: string,
     sessionId: number,
     onEnded: () => void
   ): void {
+    const isNative = Capacitor.isNativePlatform();
+
+    if (isNative) {
+      this.speakNative(text, sessionId, onEnded);
+    } else {
+      this.speakWeb(text, sessionId, onEnded);
+    }
+  }
+
+  private async speakNative(
+    text: string,
+    sessionId: number,
+    onEnded: () => void
+  ): Promise<void> {
+    try {
+      await TextToSpeech.stop();
+    } catch {
+      // Ignore stop error
+    }
+
+    if (sessionId !== this.currentSessionId) return;
+
+    const isFemale = this.options.gender === "feminine";
+    const pitch = isFemale ? 1.05 : 0.88;
+    const rate = Math.max(0.6, Math.min(1.5, 0.9 * (this.options.speed || 1.0)));
+
+    try {
+      await TextToSpeech.speak({
+        text,
+        lang: "pt-BR",
+        rate,
+        pitch,
+        category: "ambient",
+      });
+
+      if (sessionId === this.currentSessionId) {
+        onEnded();
+      }
+    } catch (err: any) {
+      console.warn("Capacitor TextToSpeech error, falling back to Web Speech:", err);
+      if (sessionId === this.currentSessionId) {
+        this.speakWeb(text, sessionId, onEnded);
+      }
+    }
+  }
+
+  private speakWeb(
+    text: string,
+    sessionId: number,
+    onEnded: () => void
+  ): void {
     if (!this.synth) {
-      // SpeechSynthesis not supported in environment fallback
       onEnded();
       return;
     }
 
-    this.synth.cancel(); // Clear hardware queue
+    try {
+      this.synth.cancel();
+    } catch {
+      // Ignore cancel errors
+    }
 
     const utterance = new SpeechSynthesisUtterance(text);
     const { voice, pitch } = this.selectBestVoice(this.options.gender);
@@ -344,7 +373,6 @@ class NarrationEngine {
     }
     utterance.lang = "pt-BR";
     utterance.pitch = pitch;
-    // Base speed rate: 0.9x for a calm devotional pace, multiplied by option speed
     utterance.rate = Math.max(0.6, Math.min(1.5, 0.92 * (this.options.speed || 1.0)));
 
     utterance.onend = () => {
@@ -368,13 +396,13 @@ class NarrationEngine {
     }
   }
 
-  /**
-   * Pause playback
-   */
   public pause(): void {
     if (!this.isPlaying || this.isPaused) return;
     this.isPaused = true;
-    if (this.synth) {
+
+    if (Capacitor.isNativePlatform()) {
+      TextToSpeech.stop().catch(() => {});
+    } else if (this.synth) {
       try {
         this.synth.pause();
       } catch {
@@ -384,18 +412,23 @@ class NarrationEngine {
     this.emitState();
   }
 
-  /**
-   * Resume playback
-   */
   public resume(): void {
     if (!this.isPlaying || !this.isPaused) return;
     this.isPaused = false;
-    if (this.synth) {
+
+    if (Capacitor.isNativePlatform()) {
+      if (this.currentPsalm) {
+        if (this.options.continuousAudio) {
+          this.speakContinuous(this.currentSessionId);
+        } else {
+          this.speakVerseByVerse(this.currentSessionId);
+        }
+      }
+    } else if (this.synth) {
       try {
         if (this.synth.paused) {
           this.synth.resume();
         } else if (this.currentPsalm) {
-          // Restart current verse if resume fails
           this.start(
             this.currentPsalm,
             this.currentVerseIndex,
@@ -405,7 +438,6 @@ class NarrationEngine {
           return;
         }
       } catch {
-        // Fallback to restarting
         if (this.currentPsalm) {
           this.start(
             this.currentPsalm,
@@ -420,13 +452,14 @@ class NarrationEngine {
     this.emitState();
   }
 
-  /**
-   * Stop playback completely and reset state
-   */
   public stop(): void {
-    this.currentSessionId += 1; // Invalidate any running utterance callbacks
+    this.currentSessionId += 1;
     this.isPlaying = false;
     this.isPaused = false;
+
+    if (Capacitor.isNativePlatform()) {
+      TextToSpeech.stop().catch(() => {});
+    }
 
     if (this.synth) {
       try {
@@ -439,9 +472,6 @@ class NarrationEngine {
     this.emitState();
   }
 
-  /**
-   * Jump to specific verse
-   */
   public jumpToVerse(verseIndex: number): void {
     if (!this.currentPsalm) return;
     this.start(
@@ -452,9 +482,6 @@ class NarrationEngine {
     );
   }
 
-  /**
-   * Update options on the fly
-   */
   public updateOptions(newOptions: NarrationOptions): void {
     const genderChanged = this.options.gender !== newOptions.gender;
     const speedChanged = this.options.speed !== newOptions.speed;
@@ -462,7 +489,6 @@ class NarrationEngine {
 
     this.options = newOptions;
 
-    // If active playback options changed, restart current verse with new settings smoothly
     if (this.isPlaying && (genderChanged || speedChanged || continuousChanged) && this.currentPsalm) {
       this.start(
         this.currentPsalm,

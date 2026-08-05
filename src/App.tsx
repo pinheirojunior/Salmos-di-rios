@@ -17,6 +17,9 @@ import PremiumTab from "./components/PremiumTab";
 import { SimulatedBannerAd, SimulatedInterstitialAd } from "./components/AdMobAds";
 import { narrationEngine } from "./services/narration/NarrationEngine";
 import { notificationService, NotificationContent } from "./services/notificationService";
+import { storageService } from "./services/storageService";
+import { appLifecycleService } from "./services/appLifecycleService";
+import { shareContent } from "./utils/shareUtils";
 
 interface DailyPsalmState {
   currentDailyPsalm: number;
@@ -364,7 +367,7 @@ export default function App() {
     }
   }, [dailyPsalmState.currentDailyPsalm]);
 
-  // Sync theme configurations (Light / Dark mode)
+  // Sync theme configurations (Light / Dark mode) & StatusBar
   useEffect(() => {
     const root = document.documentElement;
     if (settings.themeMode === "dark") {
@@ -374,7 +377,37 @@ export default function App() {
       root.classList.remove("dark");
       root.style.colorScheme = "light";
     }
+    appLifecycleService.updateStatusBar(settings.themeMode);
   }, [settings.themeMode]);
+
+  // Native Android Back Button lifecycle handler
+  useEffect(() => {
+    appLifecycleService.initNativeLifecycle({
+      onBackButton: () => {
+        if (showInterstitial) {
+          setShowInterstitial(false);
+          return true;
+        }
+        if (isReaderOpen) {
+          setIsReaderOpen(false);
+          return true;
+        }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          return true;
+        }
+        if (notificationToast?.show) {
+          setNotificationToast(null);
+          return true;
+        }
+        if (activeTab !== "inicio") {
+          setActiveTab("inicio");
+          return true;
+        }
+        return false;
+      },
+    });
+  }, [showInterstitial, isReaderOpen, isSettingsOpen, notificationToast, activeTab]);
 
   // Sync global font size multiplier to html root
   useEffect(() => {
@@ -562,21 +595,21 @@ export default function App() {
   };
 
   // Share Psalm text & link
-  const handleSharePsalm = (psalmNumber: number) => {
+  const handleSharePsalm = async (psalmNumber: number) => {
     const metadata = psalmsMetadataList[psalmNumber - 1];
     const title = metadata?.title || `Salmo ${psalmNumber}`;
     const preview = metadata?.preview || "";
     const shareText = `${title}\n\n"${preview}"\n\nLido no aplicativo Salmos Diários - Fé e Oração`;
 
-    if (navigator.share) {
-      navigator.share({
-        title: title,
-        text: shareText,
-        url: window.location.href,
-      }).catch(() => {});
-    } else if (navigator.clipboard) {
-      navigator.clipboard.writeText(shareText);
-      alert("Texto do Salmo copiado para a área de transferência!");
+    const result = await shareContent(title, shareText);
+    if (result.copied) {
+      setNotificationToast({
+        show: true,
+        title: "Copiado com Sucesso! 📋",
+        body: "O texto do Salmo foi copiado para sua área de transferência.",
+        psalmNumber,
+        timeString: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      });
     }
   };
 
@@ -739,22 +772,22 @@ export default function App() {
                   <div className="w-full h-px bg-gray-100 dark:bg-gray-800/60 my-2" />
 
                   {/* Reading / Narration actions */}
-                  <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <button
                       id="daily-read-btn"
                       onClick={() => handleOpenPsalmReader(displayedHomePsalmNumber)}
-                      className="w-full py-3 bg-gradient-to-r from-gold-accent to-amber-600 text-white rounded-xl text-xs font-display font-semibold hover:shadow-lg hover:scale-[1.02] active:scale-95 hover:from-gold-hover hover:to-amber-700 shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full min-h-[44px] py-2.5 px-3 bg-gradient-to-r from-gold-accent to-amber-600 text-white rounded-xl text-xs font-display font-semibold hover:shadow-lg hover:scale-[1.02] active:scale-95 hover:from-gold-hover hover:to-amber-700 shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer leading-tight"
                     >
-                      <BookOpen className="w-4 h-4" />
-                      Ler Salmo
+                      <BookOpen className="w-4 h-4 flex-shrink-0" />
+                      <span>Ler Salmo</span>
                     </button>
                     <button
                       id="daily-audio-btn"
                       onClick={() => handleStartPsalmAudio(displayedHomePsalmNumber)}
-                      className="w-full py-3 bg-white dark:bg-slate-800 text-gold-accent dark:text-amber-400 rounded-xl text-xs font-display font-semibold border border-gold-accent/25 dark:border-gray-700 hover:bg-gold-cream dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="w-full min-h-[44px] py-2.5 px-3 bg-white dark:bg-slate-800 text-gold-accent dark:text-amber-400 rounded-xl text-xs font-display font-semibold border border-gold-accent/25 dark:border-gray-700 hover:bg-gold-cream dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer leading-tight text-center"
                     >
-                      <Volume2 className="w-4 h-4" />
-                      Ouvir capítulo inteiro
+                      <Volume2 className="w-4 h-4 flex-shrink-0" />
+                      <span>Ouvir capítulo inteiro</span>
                     </button>
                   </div>
                 </div>
@@ -1187,7 +1220,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* 5. BOTTOM NAVIGATION BAR FOOTER (MOBILE TABS RAIL) */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white/85 dark:bg-slate-950/85 backdrop-blur-lg border-t border-gold-accent/10 py-3.5 px-6 flex items-center justify-around z-40 max-w-2xl mx-auto rounded-t-2xl shadow-lg transition-colors">
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/85 dark:bg-slate-950/85 backdrop-blur-lg border-t border-gold-accent/10 py-2 sm:py-3.5 px-2 sm:px-6 flex items-center justify-around z-40 max-w-2xl mx-auto rounded-t-2xl shadow-lg transition-colors">
         {[
           { id: "inicio", label: "Início", icon: Sparkles },
           { id: "salmos", label: "Salmos", icon: Compass },
@@ -1207,14 +1240,14 @@ export default function App() {
                 setIsReaderOpen(false);
                 incrementActionCount();
               }}
-              className={`flex flex-col items-center gap-1 cursor-pointer transition-all ${
+              className={`flex flex-col items-center gap-0.5 sm:gap-1 cursor-pointer transition-all px-1 py-0.5 rounded-lg min-w-[44px] ${
                 isActive
                   ? "text-gold-accent scale-105 font-medium"
                   : "text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
               }`}
             >
-              <Icon className={`w-5 h-5 ${isActive ? "stroke-[2.5]" : ""}`} />
-              <span className="text-[10px] font-display uppercase tracking-wide">{tab.label}</span>
+              <Icon className={`w-5 h-5 flex-shrink-0 ${isActive ? "stroke-[2.5]" : ""}`} />
+              <span className="text-[9px] sm:text-[10px] font-display uppercase tracking-wider whitespace-nowrap">{tab.label}</span>
             </button>
           );
         })}

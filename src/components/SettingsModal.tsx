@@ -165,7 +165,7 @@ export default function SettingsModal({
           <label className="text-[11px] font-mono tracking-widest text-gray-400 dark:text-gray-500 uppercase font-bold flex items-center gap-1.5">
             <Type className="w-3.5 h-3.5 text-gold-accent" /> Tamanho da Letra (Leitura)
           </label>
-          <div className="grid grid-cols-4 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
             {([0.85, 1.0, 1.15, 1.3] as number[]).map((multiplier) => {
               const labels: Record<number, string> = {
                 0.85: "Pequena",
@@ -179,7 +179,7 @@ export default function SettingsModal({
                   key={multiplier}
                   id={`settings-font-${multiplier}`}
                   onClick={() => onUpdateSettings({ fontSizeMultiplier: multiplier })}
-                  className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+                  className={`py-2 px-1 text-xs font-semibold rounded-lg transition-all cursor-pointer text-center leading-tight ${
                     isActive
                       ? "bg-white dark:bg-slate-800 shadow-md text-amber-600 dark:text-gold-accent border border-gold-accent/10"
                       : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"

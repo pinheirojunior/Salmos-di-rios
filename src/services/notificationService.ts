@@ -1,4 +1,7 @@
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { Capacitor } from "@capacitor/core";
 import { AppSettings } from "../types";
+import { storageService } from "./storageService";
 
 export interface NotificationContent {
   title: string;
@@ -78,6 +81,25 @@ class NotificationService {
 
   constructor() {
     this.registerServiceWorker();
+    this.initNativeChannel();
+  }
+
+  private async initNativeChannel() {
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await LocalNotifications.createChannel({
+          id: "salmos_daily_channel",
+          name: "Salmos Diários",
+          description: "Notificações diárias de oração e leitura dos Salmos",
+          importance: 5,
+          visibility: 1,
+          sound: "default",
+          vibration: true,
+        });
+      } catch (e) {
+        console.warn("LocalNotifications createChannel error:", e);
+      }
+    }
   }
 
   private async registerServiceWorker() {
@@ -93,21 +115,20 @@ class NotificationService {
   public async requestPermissions(): Promise<boolean> {
     if (typeof window === "undefined") return false;
 
-    // Ensure Service Worker registration is active
-    await this.registerServiceWorker();
-
-    // Check Capacitor Local Notifications if present
-    const cap = (window as any).Capacitor;
-    if (cap && cap.Plugins && cap.Plugins.LocalNotifications) {
+    // 1. Capacitor Native Local Notifications
+    if (Capacitor.isNativePlatform()) {
       try {
-        const perm = await cap.Plugins.LocalNotifications.requestPermissions();
-        if (perm.display === "granted") return true;
+        const status = await LocalNotifications.requestPermissions();
+        if (status.display === "granted") return true;
       } catch (e) {
         console.warn("Capacitor LocalNotifications request failed:", e);
       }
     }
 
-    // Web Notification API
+    // 2. Service Worker registration
+    await this.registerServiceWorker();
+
+    // 3. Web Notification API
     if ("Notification" in window) {
       try {
         if (Notification.permission === "granted") return true;
@@ -134,12 +155,10 @@ class NotificationService {
       clearInterval(this.intervalId);
     }
 
-    // Check every 20 seconds
     this.intervalId = setInterval(() => {
       this.checkAndTriggerScheduled(getSettings, getDailyPsalmNumber);
     }, 20000);
 
-    // Initial check immediately
     this.checkAndTriggerScheduled(getSettings, getDailyPsalmNumber);
   }
 
@@ -151,7 +170,6 @@ class NotificationService {
     if (this.intervalId) {
       clearInterval(this.intervalId);
     }
-    // Restart interval cleanly
     this.intervalId = setInterval(() => {
       this.checkAndTriggerScheduled(getSettings, getDailyPsalmNumber);
     }, 20000);
@@ -172,7 +190,6 @@ class NotificationService {
     const currentTimeStr = `${currentHours}:${currentMinutes}`;
     const todayStr = now.toLocaleDateString("sv"); // YYYY-MM-DD
 
-    // Define standard notification slots
     const slots = [
       {
         key: "morning",
@@ -196,10 +213,10 @@ class NotificationService {
 
       if (currentTimeStr === slot.time) {
         const fireKey = `salmo_notif_fired_${slot.key}_${todayStr}`;
-        const alreadyFired = localStorage.getItem(fireKey);
+        const alreadyFired = storageService.getItemSync(fireKey);
 
         if (!alreadyFired) {
-          localStorage.setItem(fireKey, "true");
+          storageService.setItemSync(fireKey, "true");
 
           const psalmNumber = getDailyPsalmNumber();
           const content = getPersonalizedNotificationContent(
@@ -208,10 +225,8 @@ class NotificationService {
             psalmNumber
           );
 
-          // Dispatch native notification
           this.sendNativeNotification(content);
 
-          // Trigger in-app toast
           if (this.onTriggerCallback) {
             this.onTriggerCallback(content);
           }
@@ -223,28 +238,28 @@ class NotificationService {
   public async sendNativeNotification(content: NotificationContent) {
     if (typeof window === "undefined") return;
 
-    // Check Capacitor
-    const cap = (window as any).Capacitor;
-    if (cap && cap.Plugins && cap.Plugins.LocalNotifications) {
+    // 1. Capacitor Native Local Notifications
+    if (Capacitor.isNativePlatform()) {
       try {
-        await cap.Plugins.LocalNotifications.schedule({
+        await LocalNotifications.schedule({
           notifications: [
             {
               title: content.title,
               body: content.body,
               id: Math.floor(Math.random() * 100000),
               schedule: { at: new Date(Date.now() + 100) },
-              smallIcon: "res://icon",
+              channelId: "salmos_daily_channel",
+              extra: { url: "/?action=read-daily-psalm" },
             },
           ],
         });
         return;
       } catch (e) {
-        console.warn("Capacitor schedule error:", e);
+        console.warn("Capacitor LocalNotifications schedule error:", e);
       }
     }
 
-    // ServiceWorker showNotification (Primary Web Native Notification)
+    // 2. ServiceWorker showNotification
     if ("serviceWorker" in navigator) {
       try {
         const reg = this.swRegistration || (await navigator.serviceWorker.ready);
@@ -264,7 +279,7 @@ class NotificationService {
       }
     }
 
-    // Direct Web Notification API Fallback
+    // 3. Direct Web Notification API Fallback
     if ("Notification" in window && Notification.permission === "granted") {
       try {
         const notif = new Notification(content.title, {
@@ -292,7 +307,6 @@ class NotificationService {
       psalmNumber
     );
 
-    // Request permissions and trigger real native notification immediately
     this.requestPermissions().then((granted) => {
       if (granted) {
         this.sendNativeNotification(content);
@@ -310,4 +324,3 @@ class NotificationService {
 }
 
 export const notificationService = new NotificationService();
-

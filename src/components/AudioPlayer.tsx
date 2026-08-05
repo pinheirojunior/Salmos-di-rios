@@ -227,14 +227,9 @@ export default function AudioPlayer({
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-serif font-bold text-sm text-gray-900 dark:text-gray-100 truncate">
-                    Salmo {psalm.number}
-                  </span>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 font-bold flex-shrink-0">
-                    {settings.voiceGender === "masculine" ? "👨 Masculina" : "👩 Feminina"}
-                  </span>
-                </div>
+                <span className="font-serif font-bold text-sm text-gray-900 dark:text-gray-100 truncate block">
+                  Salmo {psalm.number}
+                </span>
                 <p className="text-xs text-gray-500 dark:text-gray-400 font-serif truncate mt-0.5">
                   {settings.continuousAudio
                     ? "Leitura contínua"
