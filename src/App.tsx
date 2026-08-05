@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Compass, Heart, Settings, Sparkles, BookOpen, Volume2, Bell, X, Moon, Sun, LayoutGrid, Book, Crown, Shuffle, Share2, Pause, Play, Square, Settings2 } from "lucide-react";
-import { AppSettings, PlayerState, Psalm, PsalmMetadata, VoiceGender } from "./types";
+import { Compass, Heart, Settings, Sparkles, BookOpen, Volume2, Bell, X, LayoutGrid, Book, Crown, Shuffle } from "lucide-react";
+import { AppSettings, PlayerState, Psalm, VoiceGender } from "./types";
 import { psalmsMetadataList } from "./data/psalmsMetadata";
 import allPsalmsData from "./data/allPsalms.json";
 import { motion, AnimatePresence } from "motion/react";
