@@ -287,6 +287,17 @@ export default function App() {
         progress: state.progress,
       }));
     });
+
+    narrationEngine.onVoiceWarning = (warningMsg) => {
+      setNotificationToast({
+        show: true,
+        title: "Aviso de Narração 🔊",
+        body: warningMsg,
+        psalmNumber: 0,
+        timeString: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+      });
+    };
+
     return unsubscribe;
   }, []);
 

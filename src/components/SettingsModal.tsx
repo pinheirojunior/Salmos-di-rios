@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "motion/react";
 import PrivacyPolicyModal from "./PrivacyPolicyModal";
 import AboutModal from "./AboutModal";
 import { notificationService } from "../services/notificationService";
+import { narrationEngine } from "../services/narration/NarrationEngine";
 
 interface SettingsModalProps {
   settings: AppSettings;
@@ -38,6 +39,21 @@ export default function SettingsModal({
   const [tempEnableEvening, setTempEnableEvening] = useState(settings.enableEveningNotif === true);
   const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
   const [permissionWarning, setPermissionWarning] = useState(false);
+  const [masculineVoiceWarning, setMasculineVoiceWarning] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (settings.voiceGender === "masculine") {
+      narrationEngine.checkVoiceAvailability("masculine").then((res) => {
+        if (!res.available && res.warningMessage) {
+          setMasculineVoiceWarning(res.warningMessage);
+        } else {
+          setMasculineVoiceWarning(null);
+        }
+      });
+    } else {
+      setMasculineVoiceWarning(null);
+    }
+  }, [settings.voiceGender]);
 
   const handleSaveSchedules = async () => {
     // 1. Request/verify permissions
@@ -242,6 +258,16 @@ export default function SettingsModal({
                 </div>
               </button>
             </div>
+
+            {masculineVoiceWarning && settings.voiceGender === "masculine" && (
+              <div className="p-3 bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/20 rounded-xl text-amber-800 dark:text-amber-200 text-xs flex items-start gap-2.5 mt-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold block text-xs">Aviso de Compatibilidade de Voz</span>
+                  <p className="text-[11px] leading-relaxed opacity-90">{masculineVoiceWarning}</p>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Speed selector */}

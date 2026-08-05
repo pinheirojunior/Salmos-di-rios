@@ -16,10 +16,49 @@ export type NarrationEventCallback = (state: {
   progress: number;
 }) => void;
 
+function isVoiceFemale(raw: string): boolean {
+  const str = raw.toLowerCase();
+  const femaleKeywords = [
+    "female", "feminina", "feminino", "mulher", "woman", "girl",
+    "maria", "vitoria", "bruna", "luciana", "heloisa", "zira",
+    "samantha", "clara", "helena", "leticia", "camila", "juliana",
+    "fernanda", "isabela", "carolina", "gabriela", "mariana", "ana",
+    "beatriz", "ptc", "gte", "jab", "-x-ptc", "-x-gte", "-x-jab"
+  ];
+  return femaleKeywords.some((kw) => str.includes(kw));
+}
+
+function isVoiceMale(raw: string): boolean {
+  const str = raw.toLowerCase();
+  if (
+    str.includes("female") ||
+    str.includes("feminina") ||
+    str.includes("feminino") ||
+    str.includes("mulher") ||
+    str.includes("woman")
+  ) {
+    return false;
+  }
+  const maleKeywords = [
+    "male", "masculina", "masculino", "homem", "boy",
+    "ricardo", "felipe", "daniel", "antonio", "jorge", "joao",
+    "gustavo", "tiago", "lucas", "mateus", "paulo", "bruno",
+    "carlos", "rodrigo", "diego", "pedro", "renato",
+    "vitor", "vinicius", "ptd", "pth", "jef", "mpt", "-x-ptd", "-x-pth",
+    "-x-jef", "-x-mpt"
+  ];
+  return maleKeywords.some((kw) => str.includes(kw));
+}
+
 class NarrationEngine {
   private synth: SpeechSynthesis | null = null;
   private voices: SpeechSynthesisVoice[] = [];
+  private nativeVoices: SpeechSynthesisVoice[] = [];
+  private hasLoadedNativeVoices = false;
   private currentSessionId = 0;
+
+  public onVoiceWarning?: (msg: string) => void;
+  private hasWarnedAboutVoice = false;
 
   private isPlaying = false;
   private isPaused = false;
@@ -65,10 +104,98 @@ class NarrationEngine {
     return this.voices;
   }
 
+  public async loadNativeVoices(): Promise<SpeechSynthesisVoice[]> {
+    if (!Capacitor.isNativePlatform()) return [];
+    try {
+      const res = await TextToSpeech.getSupportedVoices();
+      this.nativeVoices = res?.voices || [];
+      this.hasLoadedNativeVoices = true;
+      return this.nativeVoices;
+    } catch (err) {
+      console.warn("Failed to query native TTS voices:", err);
+      this.nativeVoices = [];
+      return [];
+    }
+  }
+
+  private async getNativeVoiceForGender(gender: VoiceGender): Promise<{
+    voiceIndex?: number;
+    pitch: number;
+    isFallback: boolean;
+    warningMessage?: string;
+  }> {
+    const voices = await this.loadNativeVoices();
+    const isFemale = gender === "feminine";
+
+    if (!voices || voices.length === 0) {
+      return {
+        pitch: isFemale ? 1.05 : 0.88,
+        isFallback: gender === "masculine",
+        warningMessage: gender === "masculine"
+          ? "O dispositivo não possui uma voz masculina em português instalada. A narração usará a voz disponível no aparelho."
+          : undefined,
+      };
+    }
+
+    const ptVoiceIndices: number[] = [];
+    voices.forEach((v, index) => {
+      if (v.lang && v.lang.toLowerCase().startsWith("pt")) {
+        ptVoiceIndices.push(index);
+      }
+    });
+
+    const candidateIndices = ptVoiceIndices.length > 0
+      ? ptVoiceIndices
+      : voices.map((_, i) => i);
+
+    if (isFemale) {
+      const matchedIdx = candidateIndices.find((idx) => {
+        const v = voices[idx];
+        return isVoiceFemale(`${v.name || ""} ${v.voiceURI || ""}`);
+      });
+
+      const selectedIdx = matchedIdx !== undefined
+        ? matchedIdx
+        : (candidateIndices.find((idx) => voices[idx].lang.toLowerCase().includes("br")) ?? candidateIndices[0]);
+
+      return {
+        voiceIndex: selectedIdx,
+        pitch: 1.0,
+        isFallback: false,
+      };
+    } else {
+      const matchedIdx = candidateIndices.find((idx) => {
+        const v = voices[idx];
+        return isVoiceMale(`${v.name || ""} ${v.voiceURI || ""}`);
+      });
+
+      if (matchedIdx !== undefined) {
+        return {
+          voiceIndex: matchedIdx,
+          pitch: 0.95,
+          isFallback: false,
+        };
+      }
+
+      const fallbackIdx = candidateIndices.find((idx) => voices[idx].lang.toLowerCase().includes("br")) ?? candidateIndices[0];
+      return {
+        voiceIndex: fallbackIdx,
+        pitch: 0.88,
+        isFallback: true,
+        warningMessage: "O seu dispositivo não possui uma voz masculina em português instalada. A narração usará a voz disponível no aparelho.",
+      };
+    }
+  }
+
   /**
    * Selects optimal voice and pitch for pt-BR based on gender preference for Web SpeechSynthesis.
    */
-  private selectBestVoice(gender: VoiceGender): { voice: SpeechSynthesisVoice | null; pitch: number } {
+  private selectBestVoice(gender: VoiceGender): {
+    voice: SpeechSynthesisVoice | null;
+    pitch: number;
+    isFallback: boolean;
+    warningMessage?: string;
+  } {
     const allVoices = this.getAvailableVoices();
     const isFemale = gender === "feminine";
 
@@ -78,27 +205,70 @@ class NarrationEngine {
     const candidateVoices = ptVoices.length > 0 ? ptVoices : allVoices;
 
     if (candidateVoices.length === 0) {
-      return { voice: null, pitch: isFemale ? 1.05 : 0.88 };
+      return {
+        voice: null,
+        pitch: isFemale ? 1.05 : 0.88,
+        isFallback: gender === "masculine",
+        warningMessage: gender === "masculine"
+          ? "O dispositivo não possui uma voz masculina em português instalada. Utilizando a voz disponível."
+          : undefined,
+      };
     }
 
-    const genderKeywords = isFemale
-      ? ["female", "feminina", "mulher", "maria", "vitoria", "bruna", "luciana", "heloisa", "zira", "samantha", "clara", "helena"]
-      : ["male", "masculina", "homem", "ricardo", "felipe", "daniel", "antonio", "jorge", "joao"];
+    if (isFemale) {
+      const matchedVoice = candidateVoices.find((v) =>
+        isVoiceFemale(`${v.name || ""} ${v.voiceURI || ""}`)
+      );
+      const selected = matchedVoice || candidateVoices.find((v) => v.lang.toLowerCase().includes("br")) || candidateVoices[0];
+      return {
+        voice: selected,
+        pitch: 1.0,
+        isFallback: false,
+      };
+    } else {
+      const matchedVoice = candidateVoices.find((v) =>
+        isVoiceMale(`${v.name || ""} ${v.voiceURI || ""}`)
+      );
 
-    const matchedVoice = candidateVoices.find((v) => {
-      const name = v.name.toLowerCase();
-      return genderKeywords.some((kw) => name.includes(kw));
-    });
+      if (matchedVoice) {
+        return {
+          voice: matchedVoice,
+          pitch: 0.95,
+          isFallback: false,
+        };
+      }
 
-    if (matchedVoice) {
-      return { voice: matchedVoice, pitch: isFemale ? 1.0 : 0.92 };
+      const ptBrVoice = candidateVoices.find((v) => v.lang.toLowerCase().includes("br")) || candidateVoices[0];
+      return {
+        voice: ptBrVoice,
+        pitch: 0.88,
+        isFallback: true,
+        warningMessage: "O seu dispositivo não possui uma voz masculina em português instalada. A narração usará a voz disponível no aparelho.",
+      };
+    }
+  }
+
+  public async checkVoiceAvailability(gender: VoiceGender): Promise<{
+    available: boolean;
+    warningMessage?: string;
+  }> {
+    if (gender === "feminine") {
+      return { available: true };
     }
 
-    const ptBrVoice = candidateVoices.find((v) => v.lang.toLowerCase().includes("br")) || candidateVoices[0];
-    return {
-      voice: ptBrVoice,
-      pitch: isFemale ? 1.08 : 0.88,
-    };
+    if (Capacitor.isNativePlatform()) {
+      const nativeRes = await this.getNativeVoiceForGender("masculine");
+      return {
+        available: !nativeRes.isFallback,
+        warningMessage: nativeRes.warningMessage,
+      };
+    } else {
+      const webRes = this.selectBestVoice("masculine");
+      return {
+        available: !webRes.isFallback,
+        warningMessage: webRes.warningMessage,
+      };
+    }
   }
 
   /**
@@ -162,6 +332,7 @@ class NarrationEngine {
     this.isPlaying = true;
     this.isPaused = false;
     this.isTitleSpoken = false;
+    this.hasWarnedAboutVoice = false;
 
     this.emitState();
 
@@ -188,6 +359,7 @@ class NarrationEngine {
     this.isPlaying = true;
     this.isPaused = false;
     this.isTitleSpoken = true;
+    this.hasWarnedAboutVoice = false;
     this.emitState();
 
     const verse = psalm.verses[verseIndex];
@@ -325,18 +497,33 @@ class NarrationEngine {
 
     if (sessionId !== this.currentSessionId) return;
 
-    const isFemale = this.options.gender === "feminine";
-    const pitch = isFemale ? 1.05 : 0.88;
+    const nativeVoiceInfo = await this.getNativeVoiceForGender(this.options.gender);
+
+    if (sessionId !== this.currentSessionId) return;
+
+    if (nativeVoiceInfo.isFallback && nativeVoiceInfo.warningMessage && !this.hasWarnedAboutVoice) {
+      this.hasWarnedAboutVoice = true;
+      if (this.onVoiceWarning) {
+        this.onVoiceWarning(nativeVoiceInfo.warningMessage);
+      }
+    }
+
     const rate = Math.max(0.6, Math.min(1.5, 0.9 * (this.options.speed || 1.0)));
 
     try {
-      await TextToSpeech.speak({
+      const speakParams: any = {
         text,
         lang: "pt-BR",
         rate,
-        pitch,
+        pitch: nativeVoiceInfo.pitch,
         category: "ambient",
-      });
+      };
+
+      if (nativeVoiceInfo.voiceIndex !== undefined) {
+        speakParams.voice = nativeVoiceInfo.voiceIndex;
+      }
+
+      await TextToSpeech.speak(speakParams);
 
       if (sessionId === this.currentSessionId) {
         onEnded();
@@ -366,13 +553,20 @@ class NarrationEngine {
     }
 
     const utterance = new SpeechSynthesisUtterance(text);
-    const { voice, pitch } = this.selectBestVoice(this.options.gender);
+    const webVoiceInfo = this.selectBestVoice(this.options.gender);
 
-    if (voice) {
-      utterance.voice = voice;
+    if (webVoiceInfo.isFallback && webVoiceInfo.warningMessage && !this.hasWarnedAboutVoice) {
+      this.hasWarnedAboutVoice = true;
+      if (this.onVoiceWarning) {
+        this.onVoiceWarning(webVoiceInfo.warningMessage);
+      }
+    }
+
+    if (webVoiceInfo.voice) {
+      utterance.voice = webVoiceInfo.voice;
     }
     utterance.lang = "pt-BR";
-    utterance.pitch = pitch;
+    utterance.pitch = webVoiceInfo.pitch;
     utterance.rate = Math.max(0.6, Math.min(1.5, 0.92 * (this.options.speed || 1.0)));
 
     utterance.onend = () => {
