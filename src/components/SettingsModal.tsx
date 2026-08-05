@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
-import { X, Sun, Moon, Sparkles, Volume2, Bell, AlertCircle, Type, Shield, RotateCcw, User, Save, Check, Info } from "lucide-react";
+import React, { useState } from "react";
+import { X, Sun, Moon, Sparkles, Bell, AlertCircle, Type, Shield, RotateCcw, Save, Check, Info, Volume2 } from "lucide-react";
 import { AppSettings, ThemeMode, VoiceGender } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import PrivacyPolicyModal from "./PrivacyPolicyModal";
 import AboutModal from "./AboutModal";
-import { narrationService, VoiceInfo } from "../services/narration";
+import { notificationService } from "../services/notificationService";
 
 interface SettingsModalProps {
   settings: AppSettings;
@@ -24,53 +24,61 @@ export default function SettingsModal({
   isInline = false,
 }: SettingsModalProps) {
   const [tempName, setTempName] = useState(settings.userName || "");
-  const [availableVoices, setAvailableVoices] = useState<VoiceInfo[]>([]);
-
-  const getBestVoiceForGender = (gender: "masculine" | "feminine", voices: VoiceInfo[]): string | undefined => {
-    if (!voices || voices.length === 0) return undefined;
-    const isFemaleTarget = gender === "feminine";
-
-    const scored = voices.map((voice) => {
-      const name = voice.name.toLowerCase();
-      const lang = voice.lang.toLowerCase().replace("_", "-");
-
-      const matchesGender = isFemaleTarget ? voice.isFemale : !voice.isFemale;
-      if (!matchesGender) {
-        return { name: voice.name, score: -10000 };
-      }
-
-      let score = 0;
-      if (lang.startsWith("pt-br")) score += 1000;
-      else if (lang.startsWith("pt")) score += 200;
-
-      if (name.includes("natural")) score += 1000;
-      if (name.includes("neural")) score += 1000;
-      if (name.includes("online")) score += 800;
-      if (name.includes("google")) score += 400;
-
-      return { name: voice.name, score };
-    });
-
-    scored.sort((a, b) => b.score - a.score);
-    return scored[0] && scored[0].score > -5000 ? scored[0].name : undefined;
-  };
-
-  useEffect(() => {
-    let isMounted = true;
-    narrationService.getVoices(true).then((voices) => {
-      if (isMounted) {
-        setAvailableVoices(voices);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
   const [nameSaved, setNameSaved] = useState(false);
   const [showPrivacyModal, setShowPrivacyModal] = useState(false);
   const [showAboutModal, setShowAboutModal] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+
+  // Draft notification schedule states
+  const [tempMorningTime, setTempMorningTime] = useState(settings.notificationTime || "08:00");
+  const [tempAfternoonTime, setTempAfternoonTime] = useState(settings.notificationTimeAfternoon || "14:00");
+  const [tempEveningTime, setTempEveningTime] = useState(settings.notificationTimeEvening || "20:00");
+  const [tempEnableMorning, setTempEnableMorning] = useState(settings.enableMorningNotif !== false);
+  const [tempEnableAfternoon, setTempEnableAfternoon] = useState(settings.enableAfternoonNotif === true);
+  const [tempEnableEvening, setTempEnableEvening] = useState(settings.enableEveningNotif === true);
+  const [scheduleSavedMsg, setScheduleSavedMsg] = useState<string | null>(null);
+  const [permissionWarning, setPermissionWarning] = useState(false);
+
+  const handleSaveSchedules = async () => {
+    // 1. Request/verify permissions
+    const granted = await notificationService.requestPermissions();
+    if (!granted && typeof window !== "undefined" && "Notification" in window && Notification.permission === "denied") {
+      setPermissionWarning(true);
+    } else {
+      setPermissionWarning(false);
+    }
+
+    // 2. Commit settings to global state & local storage
+    onUpdateSettings({
+      notificationTime: tempMorningTime,
+      notificationTimeAfternoon: tempAfternoonTime,
+      notificationTimeEvening: tempEveningTime,
+      enableMorningNotif: tempEnableMorning,
+      enableAfternoonNotif: tempEnableAfternoon,
+      enableEveningNotif: tempEnableEvening,
+    });
+
+    // 3. Re-schedule/update notification service
+    notificationService.updateSchedules(
+      () => ({
+        ...settings,
+        notificationTime: tempMorningTime,
+        notificationTimeAfternoon: tempAfternoonTime,
+        notificationTimeEvening: tempEveningTime,
+        enableMorningNotif: tempEnableMorning,
+        enableAfternoonNotif: tempEnableAfternoon,
+        enableEveningNotif: tempEnableEvening,
+      }),
+      () => 23
+    );
+
+    // 4. Show success confirmation message
+    setScheduleSavedMsg("Horários das notificações atualizados com sucesso.");
+    setTimeout(() => {
+      setScheduleSavedMsg(null);
+    }, 4000);
+  };
+
   const renderContainer = (children: React.ReactNode) => {
     if (isInline) {
       return (
@@ -127,12 +135,11 @@ export default function SettingsModal({
           <label className="text-[11px] font-mono tracking-widest text-gray-400 dark:text-gray-500 uppercase font-bold flex items-center gap-1.5">
             <Sun className="w-3.5 h-3.5 text-gold-accent" /> Tema do Aplicativo
           </label>
-          <div className="grid grid-cols-3 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
-            {(["light", "dark", "system"] as ThemeMode[]).map((mode) => {
+          <div className="grid grid-cols-2 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
+            {(["light", "dark"] as ThemeMode[]).map((mode) => {
               const labels: Record<ThemeMode, string> = {
                 light: "Claro",
                 dark: "Escuro",
-                system: "Automático",
               };
               const isActive = settings.themeMode === mode;
               return (
@@ -185,100 +192,63 @@ export default function SettingsModal({
           </div>
         </div>
 
-        {/* 3. Audio Reading Voice Preferences */}
+        {/* 3. Audio Narration Preferences */}
         <div className="space-y-4 border-t border-gray-100 dark:border-gray-800/80 pt-4">
           <div className="flex items-center gap-2 text-[11px] font-mono tracking-widest text-gray-400 dark:text-gray-500 uppercase font-bold">
-            <Volume2 className="w-4 h-4 text-gold-accent" /> Preferências de Áudio
+            <Volume2 className="w-4 h-4 text-gold-accent" /> Configurações da Narração
           </div>
 
-          {/* Voice select */}
+          {/* Voice gender select */}
           <div className="space-y-2">
-            <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">Estilo de Voz</span>
-            <div className="grid grid-cols-2 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
-              {(["masculine", "feminine"] as VoiceGender[]).map((gender) => {
-                const labels: Record<VoiceGender, string> = {
-                  masculine: "Voz Masculina",
-                  feminine: "Voz Feminina",
-                };
-                const isActive = settings.voiceGender === gender;
-                return (
-                  <button
-                    key={gender}
-                    id={`settings-voice-${gender}`}
-                    onClick={() => {
-                      const bestVoice = getBestVoiceForGender(gender, availableVoices);
-                      onUpdateSettings({ 
-                        voiceGender: gender,
-                        preferredVoiceName: bestVoice
-                      });
-                    }}
-                    className={`py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-                      isActive
-                        ? "bg-white dark:bg-slate-800 shadow-md text-amber-600 dark:text-gold-accent border border-gold-accent/10"
-                        : "text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"
-                    }`}
-                  >
-                    {labels[gender]}
-                  </button>
-                );
-              })}
+            <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">
+              Seleção de Voz do Aplicativo
+            </span>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Voz Masculina */}
+              <button
+                type="button"
+                id="settings-voice-masculine"
+                onClick={() => onUpdateSettings({ voiceGender: "masculine" })}
+                className={`p-3.5 text-left rounded-xl border text-xs transition-all cursor-pointer ${
+                  settings.voiceGender === "masculine"
+                    ? "bg-amber-50 dark:bg-amber-950/40 border-gold-accent text-amber-900 dark:text-amber-200 font-bold shadow-sm"
+                    : "bg-gray-50 dark:bg-slate-950 border-gray-100 dark:border-slate-800 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-700"
+                }`}
+              >
+                <div className="font-bold text-sm flex items-center gap-1.5">
+                  👨 Voz Masculina
+                </div>
+                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5">
+                  Leitura grave, serena e solene
+                </div>
+              </button>
+
+              {/* Voz Feminina */}
+              <button
+                type="button"
+                id="settings-voice-feminine"
+                onClick={() => onUpdateSettings({ voiceGender: "feminine" })}
+                className={`p-3.5 text-left rounded-xl border text-xs transition-all cursor-pointer ${
+                  settings.voiceGender === "feminine"
+                    ? "bg-amber-50 dark:bg-amber-950/40 border-gold-accent text-amber-900 dark:text-amber-200 font-bold shadow-sm"
+                    : "bg-gray-50 dark:bg-slate-950 border-gray-100 dark:border-slate-800 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-700"
+                }`}
+              >
+                <div className="font-bold text-sm flex items-center gap-1.5">
+                  👩 Voz Feminina
+                </div>
+                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5">
+                  Leitura clara, suave e acolhedora
+                </div>
+              </button>
             </div>
           </div>
-
-          {/* Timbre selection dropdown */}
-          {availableVoices.length > 0 && (
-            <div className="space-y-2">
-              <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">Timbre da Voz (Personalizada)</span>
-              <select
-                id="settings-voice-selector"
-                value={settings.preferredVoiceName || ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val === "") {
-                    onUpdateSettings({ preferredVoiceName: undefined });
-                  } else {
-                    const selected = availableVoices.find(v => v.name === val);
-                    if (selected) {
-                      const nameLower = selected.name.toLowerCase();
-                      const isFemale = [
-                        "maria", "bruna", "luciana", "heloisa", "zira", "female", "mulher", "feminina", 
-                        "francisca", "joana", "samantha", "victoria", "amalia", "clara", "helena"
-                      ].some(k => nameLower.includes(k)) || (nameLower.includes("google") && !nameLower.includes("male"));
-                      
-                      onUpdateSettings({ 
-                        preferredVoiceName: val,
-                        voiceGender: isFemale ? "feminine" : "masculine"
-                      });
-                    }
-                  }
-                }}
-                className="w-full bg-gray-50 dark:bg-slate-950 border border-gray-100 dark:border-slate-800/60 rounded-xl px-3 py-2 text-xs font-medium text-gray-700 dark:text-gray-300 outline-none focus:ring-1 focus:ring-gold-accent cursor-pointer"
-              >
-                <option value="">-- Voz Recomendada Automática ({settings.voiceGender === "feminine" ? "Feminina" : "Masculina"}) --</option>
-                {availableVoices.map((voice) => {
-                  const nameLower = voice.name.toLowerCase();
-                  const isFem = [
-                    "maria", "bruna", "luciana", "heloisa", "zira", "female", "mulher", "feminina", 
-                    "francisca", "joana", "samantha", "victoria", "amalia", "clara", "helena"
-                  ].some(k => nameLower.includes(k)) || (nameLower.includes("google") && !nameLower.includes("male"));
-                  
-                  const genderLabel = isFem ? "Feminina" : "Masculina";
-                  const isHighQuality = nameLower.includes("natural") || nameLower.includes("neural") || nameLower.includes("online") || nameLower.includes("google") || nameLower.includes("premium");
-                  const suffix = isHighQuality ? " (Melhor Qualidade)" : "";
-                  
-                  return (
-                    <option key={voice.name} value={voice.name} className="dark:bg-slate-900">
-                      {voice.name} [{genderLabel}]{suffix}
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
-          )}
 
           {/* Speed selector */}
           <div className="space-y-2">
-            <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">Velocidade da Narração</span>
+            <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">
+              Velocidade da Narração
+            </span>
             <div className="grid grid-cols-3 gap-1.5 bg-gray-50 dark:bg-slate-950 p-1 rounded-xl border border-gray-100 dark:border-slate-800/60">
               {([0.8, 1.0, 1.2] as number[]).map((speed) => {
                 const isActive = settings.voiceSpeed === speed;
@@ -298,19 +268,16 @@ export default function SettingsModal({
                 );
               })}
             </div>
-            <p className="text-[10px] text-gray-400 dark:text-gray-500 font-serif leading-relaxed">
-              *A narração foi intencionalmente configurada em um ritmo calmo, respeitoso e solene para propiciar uma profunda reflexão espiritual.
-            </p>
           </div>
 
           {/* Continuous Audio toggle */}
           <div className="flex items-center justify-between gap-4 bg-gray-50 dark:bg-slate-950 p-3 rounded-xl border border-gray-100 dark:border-slate-800/60 shadow-sm">
             <div className="space-y-0.5">
               <span className="text-xs font-bold text-gray-700 dark:text-gray-300">
-                Áudio contínuo
+                Áudio Contínuo
               </span>
               <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-normal font-serif">
-                Reproduz o Salmo de forma contínua, sem anunciar o número de cada versículo.
+                Lê o Salmo direto (sem anunciar capítulos e versículos) e passa automaticamente para o próximo Salmo ao terminar.
               </p>
             </div>
             <button
@@ -330,36 +297,134 @@ export default function SettingsModal({
           </div>
         </div>
 
-        {/* 4. Simulated Daily Notifications config */}
+        {/* 4. Daily Notifications config */}
         <div className="space-y-4 border-t border-gray-100 dark:border-gray-800/80 pt-4">
           <div className="flex items-center gap-2 text-[11px] font-mono tracking-widest text-gray-400 dark:text-gray-500 uppercase font-bold">
             <Bell className="w-4 h-4 text-gold-accent" /> Notificações Diárias
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-4">
-              <span className="text-xs text-gray-600 dark:text-gray-400 font-semibold">
-                Horário da Notificação Matinal
-              </span>
+          <div className="space-y-3 bg-gray-50/70 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-gray-100 dark:border-slate-800/80">
+            {/* Morning Notification slot */}
+            <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-200/50 dark:border-slate-800/50">
+              <div className="flex items-center gap-2">
+                <input
+                  id="settings-enable-morning-checkbox"
+                  type="checkbox"
+                  checked={tempEnableMorning}
+                  onChange={(e) => setTempEnableMorning(e.target.checked)}
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                  🌅 Matinal
+                </span>
+              </div>
               <input
-                id="settings-notification-time"
+                id="settings-notification-time-morning"
                 type="time"
-                value={settings.notificationTime}
-                onChange={(e) => onUpdateSettings({ notificationTime: e.target.value })}
-                className="bg-gray-50 dark:bg-slate-950 text-gray-800 dark:text-gray-100 border border-gold-accent/15 dark:border-slate-800 px-3 py-1.5 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-sm"
+                disabled={!tempEnableMorning}
+                value={tempMorningTime}
+                onChange={(e) => setTempMorningTime(e.target.value)}
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
               />
             </div>
 
-            {/* Test alert button */}
-            <button
-              id="settings-trigger-test-btn"
-              onClick={onTriggerTestNotification}
-              className="w-full py-2.5 rounded-xl border border-gold-accent/30 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-800 text-xs font-display font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-            >
-              <Bell className="w-4 h-4" />
-              Testar Notificação Agora
-            </button>
+            {/* Afternoon Notification slot */}
+            <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-200/50 dark:border-slate-800/50">
+              <div className="flex items-center gap-2">
+                <input
+                  id="settings-enable-afternoon-checkbox"
+                  type="checkbox"
+                  checked={tempEnableAfternoon}
+                  onChange={(e) => setTempEnableAfternoon(e.target.checked)}
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                  📖 Tarde
+                </span>
+              </div>
+              <input
+                id="settings-notification-time-afternoon"
+                type="time"
+                disabled={!tempEnableAfternoon}
+                value={tempAfternoonTime}
+                onChange={(e) => setTempAfternoonTime(e.target.value)}
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
+              />
+            </div>
+
+            {/* Evening Notification slot */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <input
+                  id="settings-enable-evening-checkbox"
+                  type="checkbox"
+                  checked={tempEnableEvening}
+                  onChange={(e) => setTempEnableEvening(e.target.checked)}
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                />
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                  🌙 Noite
+                </span>
+              </div>
+              <input
+                id="settings-notification-time-evening"
+                type="time"
+                disabled={!tempEnableEvening}
+                value={tempEveningTime}
+                onChange={(e) => setTempEveningTime(e.target.value)}
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
+              />
+            </div>
+
+            {/* Prominent Save Schedules button */}
+            <div className="pt-2">
+              <button
+                id="settings-save-notification-times-btn"
+                type="button"
+                onClick={handleSaveSchedules}
+                className="w-full py-3 bg-gradient-to-r from-gold-accent to-amber-600 hover:from-amber-600 hover:to-gold-accent text-white font-display font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-98"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Horários</span>
+              </button>
+            </div>
+
+            {/* Schedule confirmation message */}
+            <AnimatePresence>
+              {scheduleSavedMsg && (
+                <motion.div
+                  initial={{ opacity: 0, y: -5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -5 }}
+                  className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 p-2.5 rounded-xl flex items-center gap-2 text-xs font-semibold text-emerald-800 dark:text-emerald-200"
+                >
+                  <Check className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                  <span>{scheduleSavedMsg}</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Permission warning banner if permission is denied */}
+            {permissionWarning && (
+              <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 p-2.5 rounded-xl text-[11px] text-amber-800 dark:text-amber-300 font-serif leading-relaxed flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <span>
+                  As notificações foram bloqueadas no seu navegador/dispositivo. Por favor, ative as permissões nas configurações do seu navegador para receber os avisos.
+                </span>
+              </div>
+            )}
           </div>
+
+          {/* Test alert button */}
+          <button
+            id="settings-trigger-test-btn"
+            type="button"
+            onClick={onTriggerTestNotification}
+            className="w-full py-2.5 rounded-xl border border-gold-accent/30 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-800 text-xs font-display font-semibold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          >
+            <Bell className="w-4 h-4" />
+            <span>Testar Notificação Agora</span>
+          </button>
         </div>
 
         {/* 5. Privacy Controls */}

@@ -147,44 +147,6 @@ function generateOfflinePsalm(num: number) {
   };
 }
 
-// API endpoint to fetch a single Psalm
-app.get("/api/tts", async (req, res) => {
-  try {
-    const text = (req.query.text as string) || "";
-    if (!text.trim()) {
-      return res.status(400).send("Text parameter is required");
-    }
-    // Clean and split text if needed (Google Translate TTS max length limit ~200 chars)
-    const cleanText = text.replace(/[\r\n]+/g, " ").trim().substring(0, 300);
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=pt-BR&q=${encodeURIComponent(cleanText)}`;
-    
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      }
-    });
-
-    if (!response.ok) {
-      return res.status(500).send("Failed to fetch audio from TTS provider");
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    res.set({
-      "Content-Type": "audio/mpeg",
-      "Content-Length": buffer.length.toString(),
-      "Cache-Control": "public, max-age=86400",
-      "Accept-Ranges": "bytes"
-    });
-
-    res.send(buffer);
-  } catch (err) {
-    console.error("TTS endpoint error:", err);
-    res.status(500).send("Error generating speech audio");
-  }
-});
-
 app.get("/api/psalm/:number", async (req, res) => {
   const psalmNum = parseInt(req.params.number);
   if (isNaN(psalmNum) || psalmNum < 1 || psalmNum > 150) {

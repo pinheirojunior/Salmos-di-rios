@@ -18,18 +18,22 @@ export interface PsalmMetadata {
   preview: string;
 }
 
-export type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark";
 export type VoiceGender = "masculine" | "feminine";
 
 export interface AppSettings {
   themeMode: ThemeMode;
   voiceGender: VoiceGender;
-  voiceSpeed: number; // e.g., 0.8, 1.0, 1.2
-  preferredVoiceName?: string; // e.g., "Google português do Brasil"
+  voiceSpeed: number; // e.g. 0.8, 1.0, 1.2
   fontSizeMultiplier: number; // e.g., 0.85, 1.0, 1.15, 1.3
-  notificationTime: string; // "HH:MM" e.g. "08:00"
+  notificationTime: string; // "HH:MM" e.g. "08:00" (Morning)
+  notificationTimeAfternoon?: string; // "HH:MM" e.g. "14:00"
+  notificationTimeEvening?: string; // "HH:MM" e.g. "20:00"
+  enableMorningNotif?: boolean;
+  enableAfternoonNotif?: boolean;
+  enableEveningNotif?: boolean;
   hasSetupVoice: boolean;
-  continuousAudio?: boolean;
+  continuousAudio: boolean;
   userName?: string;
   hasAcceptedPrivacy?: boolean;
   isPremium?: boolean;
@@ -40,9 +44,8 @@ export interface PlayerState {
   isPaused: boolean;
   currentPsalmNumber: number | null;
   currentVerseIndex: number;
+  totalVerses: number;
   progress: number; // 0 to 100
-  elapsedTime: number; // seconds
-  remainingTime: number; // seconds
   isSingleVerseMode?: boolean;
 }
 

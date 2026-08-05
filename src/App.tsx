@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Compass, Heart, Settings, Sparkles, BookOpen, Volume2, Bell, X, Moon, Sun, LayoutGrid, Book, Crown } from "lucide-react";
-import { AppSettings, PlayerState, Psalm, PsalmMetadata } from "./types";
+import { Compass, Heart, Settings, Sparkles, BookOpen, Volume2, Bell, X, Moon, Sun, LayoutGrid, Book, Crown, Shuffle, Share2, Pause, Play, Square, Settings2 } from "lucide-react";
+import { AppSettings, PlayerState, Psalm, PsalmMetadata, VoiceGender } from "./types";
 import { psalmsMetadataList } from "./data/psalmsMetadata";
 import allPsalmsData from "./data/allPsalms.json";
 import { motion, AnimatePresence } from "motion/react";
@@ -15,7 +15,8 @@ import VoicePrompt from "./components/VoicePrompt";
 import Onboarding from "./components/Onboarding";
 import PremiumTab from "./components/PremiumTab";
 import { SimulatedBannerAd, SimulatedInterstitialAd } from "./components/AdMobAds";
-import { narrationService, VoiceInfo } from "./services/narration";
+import { narrationEngine } from "./services/narration/NarrationEngine";
+import { notificationService, NotificationContent } from "./services/notificationService";
 
 interface DailyPsalmState {
   currentDailyPsalm: number;
@@ -144,11 +145,16 @@ const getOrGenerateDailyPsalmState = (): DailyPsalmState => {
 };
 
 const defaultSettings: AppSettings = {
-  themeMode: "system",
+  themeMode: "light",
   voiceGender: "feminine",
   voiceSpeed: 1.0,
   fontSizeMultiplier: 1.0,
   notificationTime: "08:00",
+  notificationTimeAfternoon: "14:00",
+  notificationTimeEvening: "20:00",
+  enableMorningNotif: true,
+  enableAfternoonNotif: false,
+  enableEveningNotif: false,
   hasSetupVoice: false,
   continuousAudio: false,
   userName: undefined,
@@ -262,17 +268,50 @@ export default function App() {
     isPaused: false,
     currentPsalmNumber: null,
     currentVerseIndex: 0,
+    totalVerses: 0,
     progress: 0,
-    elapsedTime: 0,
-    remainingTime: 0,
   });
 
-  // Active notification toast simulation state
+  // Subscribe to narration engine updates
+  useEffect(() => {
+    const unsubscribe = narrationEngine.subscribe((state) => {
+      setPlayerState((prev) => ({
+        ...prev,
+        isPlaying: state.isPlaying,
+        isPaused: state.isPaused,
+        currentVerseIndex: state.currentVerseIndex,
+        totalVerses: state.totalVerses,
+        progress: state.progress,
+      }));
+    });
+    return unsubscribe;
+  }, []);
+
+  // Sync narration engine options whenever settings change
+  useEffect(() => {
+    narrationEngine.updateOptions({
+      gender: settings.voiceGender,
+      speed: settings.voiceSpeed,
+      continuousAudio: settings.continuousAudio,
+    });
+  }, [settings.voiceGender, settings.voiceSpeed, settings.continuousAudio]);
+
+  // Active notification modal/toast state
   const [notificationToast, setNotificationToast] = useState<{
     show: boolean;
-    message: string;
+    title: string;
+    body: string;
     psalmNumber: number;
+    timeString: string;
   } | null>(null);
+
+  // Home card displayed psalm number (defaults to daily psalm, can be randomized via "Ver um novo Salmo")
+  const [displayedHomePsalmNumber, setDisplayedHomePsalmNumber] = useState<number>(() => dailyPsalmState.currentDailyPsalm);
+
+  // Sync displayed psalm when official daily psalm changes
+  useEffect(() => {
+    setDisplayedHomePsalmNumber(dailyPsalmState.currentDailyPsalm);
+  }, [dailyPsalmState.currentDailyPsalm]);
 
   // Save configurations to localStorage
   useEffect(() => {
@@ -283,29 +322,57 @@ export default function App() {
     localStorage.setItem("salmo_dia_favorites", JSON.stringify(favorites));
   }, [favorites]);
 
-  // Sync theme configurations
+  // Initialize notification scheduler
+  useEffect(() => {
+    const settingsRef = { current: settings };
+    settingsRef.current = settings;
+
+    notificationService.initScheduler(
+      () => settingsRef.current,
+      () => dailyPsalmState.currentDailyPsalm,
+      (content: NotificationContent) => {
+        setNotificationToast({
+          show: true,
+          title: content.title,
+          body: content.body,
+          psalmNumber: content.psalmNumber,
+          timeString: content.timeString,
+        });
+      }
+    );
+  }, [dailyPsalmState.currentDailyPsalm, settings]);
+
+  // Handle URL launch actions from notifications (e.g. ?action=read-daily-psalm)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (
+        params.get("action") === "read-daily-psalm" ||
+        params.get("source") === "notification"
+      ) {
+        setActiveTab("inicio");
+        const dailyNum = dailyPsalmState.currentDailyPsalm;
+        if (dailyNum) {
+          fetchPsalmText(dailyNum).then((psalm) => {
+            if (psalm) {
+              setSelectedPsalm(psalm);
+              setIsReaderOpen(true);
+            }
+          });
+        }
+      }
+    }
+  }, [dailyPsalmState.currentDailyPsalm]);
+
+  // Sync theme configurations (Light / Dark mode)
   useEffect(() => {
     const root = document.documentElement;
-    const applyTheme = (dark: boolean) => {
-      if (dark) {
-        root.classList.add("dark");
-      } else {
-        root.classList.remove("dark");
-      }
-    };
-
     if (settings.themeMode === "dark") {
-      applyTheme(true);
-    } else if (settings.themeMode === "light") {
-      applyTheme(false);
+      root.classList.add("dark");
+      root.style.colorScheme = "dark";
     } else {
-      // System mode
-      const media = window.matchMedia("(prefers-color-scheme: dark)");
-      applyTheme(media.matches);
-
-      const listener = (e: MediaQueryListEvent) => applyTheme(e.matches);
-      media.addEventListener("change", listener);
-      return () => media.removeEventListener("change", listener);
+      root.classList.remove("dark");
+      root.style.colorScheme = "light";
     }
   }, [settings.themeMode]);
 
@@ -351,6 +418,7 @@ export default function App() {
 
   const dailyPsalmNumber = dailyPsalmState.currentDailyPsalm;
   const dailyPsalmMetadata = psalmsMetadataList[dailyPsalmNumber - 1];
+  const displayedHomePsalmMetadata = psalmsMetadataList[displayedHomePsalmNumber - 1];
 
   // Load selected Psalm from Express Backend API (utilizing client-side memory + storage cache)
   const fetchPsalmText = async (number: number, silent = false) => {
@@ -415,10 +483,6 @@ export default function App() {
   }, [dailyPsalmNumber, favorites]);
 
   const handleOpenPsalmReader = async (number: number) => {
-    // If different psalm loaded, reset verse narration index
-    if (playerState.currentPsalmNumber !== number) {
-      setPlayerState(prev => ({ ...prev, currentVerseIndex: 0 }));
-    }
     const psalm = await fetchPsalmText(number);
     if (psalm) {
       setSelectedPsalm(psalm);
@@ -427,40 +491,64 @@ export default function App() {
     }
   };
 
-  const handleStartPsalmAudio = async (number: number, verseIndex?: number, isSingleVerseMode?: boolean) => {
-    // Immediately stop any active narration across all platform engines (0ms response)
-    narrationService.stop();
-    narrationService.unlock();
-
-    // Reset verse index if switching Psalms or if explicitly provided
-    let startIdx = verseIndex !== undefined ? verseIndex : playerState.currentVerseIndex;
-    if (playerState.currentPsalmNumber !== number && verseIndex === undefined) {
-      startIdx = 0;
-    }
-
-    setPlayerState(prev => ({
-      ...prev,
-      currentVerseIndex: startIdx,
-      isPlaying: false,
-      isPaused: false,
-      currentPsalmNumber: number,
-      isSingleVerseMode: !!isSingleVerseMode,
-    }));
-
-    const psalm = await fetchPsalmText(number);
-    if (psalm) {
+  const handleStartPsalmAudio = (number: number, verseIndex = 0, isSingleVerseMode = false) => {
+    const startAudioWithPsalm = (psalm: Psalm) => {
       setSelectedPsalm(psalm);
-      // Trigger voice synthesis starting from selected verse
-      setPlayerState(prev => ({
+      setPlayerState((prev) => ({
         ...prev,
-        isPlaying: true,
-        isPaused: false,
         currentPsalmNumber: number,
-        currentVerseIndex: startIdx,
+        currentVerseIndex: verseIndex,
         isSingleVerseMode: !!isSingleVerseMode,
       }));
+
+      if (isSingleVerseMode) {
+        narrationEngine.startSingleVerse(psalm, verseIndex, {
+          gender: settings.voiceGender,
+          speed: settings.voiceSpeed,
+          continuousAudio: settings.continuousAudio,
+        });
+      } else {
+        narrationEngine.start(
+          psalm,
+          verseIndex,
+          {
+            gender: settings.voiceGender,
+            speed: settings.voiceSpeed,
+            continuousAudio: settings.continuousAudio,
+          },
+          () => {
+            if (narrationEngine.getOptions().continuousAudio && number < 150) {
+              handleStartPsalmAudio(number + 1, 0, false);
+            }
+          }
+        );
+      }
       incrementActionCount();
+    };
+
+    const staticPsalm = (allPsalmsData as Record<string, Psalm>)[String(number)];
+    if (staticPsalm) {
+      startAudioWithPsalm(staticPsalm);
+    } else {
+      fetchPsalmText(number).then((psalm) => {
+        if (psalm) {
+          startAudioWithPsalm(psalm);
+        }
+      });
     }
+  };
+
+  const handleSetupVoice = (gender: VoiceGender) => {
+    setSettings((prev) => ({
+      ...prev,
+      voiceGender: gender,
+      hasSetupVoice: true,
+    }));
+    narrationEngine.updateOptions({
+      gender,
+      speed: settings.voiceSpeed,
+      continuousAudio: settings.continuousAudio,
+    });
   };
 
   // Toggle favorite Psalm from any card or list
@@ -471,6 +559,25 @@ export default function App() {
     setFavorites(prev =>
       prev.includes(number) ? prev.filter(n => n !== number) : [...prev, number]
     );
+  };
+
+  // Share Psalm text & link
+  const handleSharePsalm = (psalmNumber: number) => {
+    const metadata = psalmsMetadataList[psalmNumber - 1];
+    const title = metadata?.title || `Salmo ${psalmNumber}`;
+    const preview = metadata?.preview || "";
+    const shareText = `${title}\n\n"${preview}"\n\nLido no aplicativo Salmos Diários - Fé e Oração`;
+
+    if (navigator.share) {
+      navigator.share({
+        title: title,
+        text: shareText,
+        url: window.location.href,
+      }).catch(() => {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(shareText);
+      alert("Texto do Salmo copiado para a área de transferência!");
+    }
   };
 
   const handleResetPreferences = () => {
@@ -502,66 +609,37 @@ export default function App() {
     setDailyPsalmState(freshState);
   };
 
-  // Setup preference voice gender on first load
-  const handleSetupVoice = async (gender: "masculine" | "feminine") => {
-    let bestVoiceName: string | undefined = undefined;
-    const voices = await narrationService.getVoices(true);
-      
-    const getBestVoiceForGender = (g: "masculine" | "feminine", vlist: VoiceInfo[]): string | undefined => {
-      if (!vlist || vlist.length === 0) return undefined;
-      const isFemaleTarget = g === "feminine";
-      const scored = vlist.map(voice => {
-        const name = voice.name.toLowerCase();
-        const lang = voice.lang.toLowerCase().replace("_", "-");
-        
-        if (isFemaleTarget !== voice.isFemale) return { name: voice.name, score: -10000 };
-        let score = 0;
-        if (lang.startsWith("pt-br")) score += 1000;
-        else if (lang.startsWith("pt")) score += 200;
-        if (name.includes("natural") || name.includes("neural")) score += 1000;
-        return { name: voice.name, score };
-      });
-      scored.sort((a, b) => b.score - a.score);
-      return scored[0] && scored[0].score > -5000 ? scored[0].name : undefined;
-    };
-    
-    bestVoiceName = getBestVoiceForGender(gender, voices);
-
-    setSettings(prev => ({
-      ...prev,
-      voiceGender: gender,
-      preferredVoiceName: bestVoiceName,
-      hasSetupVoice: true,
-    }));
+  // Trigger test notification
+  const handleTriggerTestNotification = () => {
+    setIsSettingsOpen(false); // Close settings panel if open
+    setActiveTab("inicio");   // Ensure we are on main screen
+    notificationService.triggerTestNotification(
+      settings.userName,
+      dailyPsalmNumber,
+      (content: NotificationContent) => {
+        setNotificationToast({
+          show: true,
+          title: content.title,
+          body: content.body,
+          psalmNumber: content.psalmNumber,
+          timeString: content.timeString,
+        });
+      }
+    );
   };
 
-  // Trigger test notification toast
-  const handleTriggerTestNotification = () => {
-    setIsSettingsOpen(false); // Close settings panel
-    const msgs = [
-      "Bom dia. O Salmo de hoje já está esperando por você.",
-      "Reserve alguns minutos de silêncio hoje para fortalecer sua fé.",
-    ];
-    const message = msgs[Math.floor(Math.random() * msgs.length)];
-    
-    setNotificationToast({
-      show: true,
-      message,
-      psalmNumber: dailyPsalmNumber,
-    });
-
-    // Auto-dismiss after 6.5 seconds
-    setTimeout(() => {
-      setNotificationToast(prev => prev ? { ...prev, show: false } : null);
-    }, 6500);
+  // Select a new random psalm without changing the official daily psalm
+  const handleSelectRandomPsalm = () => {
+    let nextNum = Math.floor(Math.random() * 150) + 1;
+    if (nextNum === displayedHomePsalmNumber) {
+      nextNum = (nextNum % 150) + 1;
+    }
+    setDisplayedHomePsalmNumber(nextNum);
+    fetchPsalmText(nextNum, true);
   };
 
   const handleUpdateSettings = (updated: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...updated }));
-  };
-
-  const handleUpdatePlayerState = (updated: Partial<PlayerState>) => {
-    setPlayerState(prev => ({ ...prev, ...updated }));
   };
 
   // Load Favorite Psalms Metadata list
@@ -609,7 +687,7 @@ export default function App() {
                   )}
                 </h1>
                 <p className="text-sm text-gray-500 dark:text-gray-400 font-serif leading-relaxed italic">
-                  "{getDailyEncouragement(dailyPsalmNumber)}"
+                  "{getDailyEncouragement(displayedHomePsalmNumber)}"
                 </p>
               </div>
 
@@ -623,33 +701,39 @@ export default function App() {
 
                 <div className="space-y-5">
                   <div className="flex justify-between items-center">
-                    <span className="text-[10px] font-mono tracking-widest text-gold-accent uppercase font-bold bg-amber-50 dark:bg-slate-800/80 border border-gold-accent/25 px-2.5 py-1 rounded-full">
-                      Salmo do Dia
+                    <span className="text-[10px] font-mono tracking-widest text-gold-accent uppercase font-bold bg-amber-50 dark:bg-slate-800/80 border border-gold-accent/25 px-2.5 py-1 rounded-full flex items-center gap-1">
+                      {displayedHomePsalmNumber === dailyPsalmNumber ? (
+                        "Salmo do Dia"
+                      ) : (
+                        <>
+                          <Shuffle className="w-3 h-3 inline" /> Salmo #{displayedHomePsalmNumber}
+                        </>
+                      )}
                     </span>
                     <button
                       id="daily-card-favorite-btn"
-                      onClick={(e) => handleToggleFavorite(dailyPsalmNumber, e)}
+                      onClick={(e) => handleToggleFavorite(displayedHomePsalmNumber, e)}
                       className={`p-2 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors ${
-                        favorites.includes(dailyPsalmNumber) ? "text-red-500" : "text-gray-300 dark:text-gray-600"
+                        favorites.includes(displayedHomePsalmNumber) ? "text-red-500" : "text-gray-300 dark:text-gray-600"
                       }`}
-                      title={favorites.includes(dailyPsalmNumber) ? "Remover dos favoritos" : "Salvar nos favoritos"}
+                      title={favorites.includes(displayedHomePsalmNumber) ? "Remover dos favoritos" : "Salvar nos favoritos"}
                     >
-                      <Heart className={`w-5 h-5 ${favorites.includes(dailyPsalmNumber) ? "fill-current" : ""}`} />
+                      <Heart className={`w-5 h-5 ${favorites.includes(displayedHomePsalmNumber) ? "fill-current" : ""}`} />
                     </button>
                   </div>
 
                   <div className="space-y-2">
                     <h2 className="font-serif font-bold text-3xl text-gray-800 dark:text-gray-100 group-hover:text-gold-accent transition-colors">
-                      {dailyPsalmMetadata.title}
+                      {displayedHomePsalmMetadata.title}
                     </h2>
                     <p className="font-serif italic text-base text-gray-500 dark:text-gray-400 leading-relaxed border-l-2 border-gold-accent/30 pl-4">
-                      "{dailyPsalmMetadata.theme}"
+                      "{displayedHomePsalmMetadata.theme}"
                     </p>
                   </div>
 
                   {/* Preview verses */}
                   <p className="text-xs sm:text-sm text-gray-400 dark:text-gray-500 font-serif leading-relaxed italic line-clamp-3">
-                    "{dailyPsalmMetadata.preview}"
+                    "{displayedHomePsalmMetadata.preview}"
                   </p>
 
                   <div className="w-full h-px bg-gray-100 dark:bg-gray-800/60 my-2" />
@@ -658,7 +742,7 @@ export default function App() {
                   <div className="grid grid-cols-2 gap-3 pt-1">
                     <button
                       id="daily-read-btn"
-                      onClick={() => handleOpenPsalmReader(dailyPsalmNumber)}
+                      onClick={() => handleOpenPsalmReader(displayedHomePsalmNumber)}
                       className="w-full py-3 bg-gradient-to-r from-gold-accent to-amber-600 text-white rounded-xl text-xs font-display font-semibold hover:shadow-lg hover:scale-[1.02] active:scale-95 hover:from-gold-hover hover:to-amber-700 shadow-md transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <BookOpen className="w-4 h-4" />
@@ -666,8 +750,8 @@ export default function App() {
                     </button>
                     <button
                       id="daily-audio-btn"
-                      onClick={() => handleStartPsalmAudio(dailyPsalmNumber)}
-                      className="w-full py-3 bg-white dark:bg-slate-800 text-gold-accent dark:text-amber-500 rounded-xl text-xs font-display font-semibold border border-gold-accent/25 dark:border-gray-700 hover:bg-gold-cream dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      onClick={() => handleStartPsalmAudio(displayedHomePsalmNumber)}
+                      className="w-full py-3 bg-white dark:bg-slate-800 text-gold-accent dark:text-amber-400 rounded-xl text-xs font-display font-semibold border border-gold-accent/25 dark:border-gray-700 hover:bg-gold-cream dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <Volume2 className="w-4 h-4" />
                       Ouvir capítulo inteiro
@@ -675,6 +759,16 @@ export default function App() {
                   </div>
                 </div>
               </div>
+
+              {/* Button "Ver um novo Salmo" */}
+              <button
+                id="home-ver-novo-salmo-btn"
+                onClick={handleSelectRandomPsalm}
+                className="w-full py-3.5 px-5 bg-white dark:bg-slate-900 text-gold-accent dark:text-amber-400 border-2 border-gold-accent/30 dark:border-gold-accent/20 hover:border-gold-accent dark:hover:border-gold-accent/50 rounded-2xl font-display font-bold text-sm shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2.5 cursor-pointer group active:scale-[0.99]"
+              >
+                <Shuffle className="w-4.5 h-4.5 transition-transform group-hover:rotate-180 duration-500 text-gold-accent" />
+                <span>Ver um novo Salmo</span>
+              </button>
 
               {/* Devocional helper message */}
               <div className="bg-white dark:bg-slate-900 border border-gold-accent/10 dark:border-gray-800 rounded-2xl p-5 flex items-start gap-4">
@@ -922,8 +1016,8 @@ export default function App() {
             onUpdateSettings={handleUpdateSettings}
             playerState={playerState}
             onStartAudio={(verseIndex, isSingle) => handleStartPsalmAudio(selectedPsalm.number, verseIndex, isSingle)}
-            onPauseAudio={() => handleUpdatePlayerState({ isPaused: true })}
-            onResumeAudio={() => handleUpdatePlayerState({ isPaused: false })}
+            onPauseAudio={() => narrationEngine.pause()}
+            onResumeAudio={() => narrationEngine.resume()}
             isFavorite={favorites.includes(selectedPsalm.number)}
             onToggleFavorite={() => handleToggleFavorite(selectedPsalm.number)}
             onClose={() => setIsReaderOpen(false)}
@@ -931,17 +1025,17 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Audio TTS Player overlay control bar */}
-      {selectedPsalm && playerState.currentPsalmNumber && (
+      {/* Audio TTS Player overlay control bar (only when active and on non-home tabs) */}
+      {activeTab !== "inicio" && selectedPsalm && playerState.currentPsalmNumber && (
         <AudioPlayer
           psalm={selectedPsalm}
           settings={settings}
           onUpdateSettings={handleUpdateSettings}
           playerState={playerState}
-          onUpdatePlayerState={handleUpdatePlayerState}
+          onStartNextPsalm={(nextNum) => handleStartPsalmAudio(nextNum, 0)}
           onClose={() => {
-            setSelectedPsalm(null);
-            handleUpdatePlayerState({ currentPsalmNumber: null, isPlaying: false, isPaused: false });
+            narrationEngine.stop();
+            setPlayerState((prev) => ({ ...prev, currentPsalmNumber: null }));
           }}
         />
       )}
@@ -959,59 +1053,104 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* First session setup choice pop-over prompt */}
+      {/* Voice Selection prompt for initial setup */}
       <AnimatePresence>
         {!settings.hasSetupVoice && (
-          <VoicePrompt onSelectGender={handleSetupVoice} />
+          <VoicePrompt
+            onSelectGender={handleSetupVoice}
+            userName={settings.userName}
+          />
         )}
       </AnimatePresence>
 
       {/* Daily simulated push notification alert overlay toast banner */}
+      {/* Centered Notification Popup Modal */}
       <AnimatePresence>
         {notificationToast && notificationToast.show && (
-          <motion.div
-            id="simulated-notification-toast"
-            initial={{ y: -100, opacity: 0, x: "-50%" }}
-            animate={{ y: 0, opacity: 1, x: "-50%" }}
-            exit={{ y: -100, opacity: 0, x: "-50%" }}
-            onClick={() => {
-              setNotificationToast(prev => prev ? { ...prev, show: false } : null);
-              handleOpenPsalmReader(notificationToast.psalmNumber);
-            }}
-            className="fixed top-6 left-1/2 -translate-x-1/2 w-[90%] max-w-sm bg-slate-900 text-white rounded-2xl p-4 shadow-2xl border border-gold-accent/25 flex items-start gap-3 z-55 cursor-pointer hover:scale-[1.02] active:scale-98 transition-all"
+          <div
+            id="simulated-notification-overlay"
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+            onClick={() => setNotificationToast(prev => prev ? { ...prev, show: false } : null)}
           >
-            <div className="p-2 bg-gradient-to-tr from-gold-accent to-amber-600 rounded-xl text-white">
-              <Bell className="w-5 h-5 animate-bounce" />
-            </div>
-            <div className="flex-1 space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono text-gold-accent font-bold uppercase tracking-wider">
-                  Salmo do Dia • Notificação
-                </span>
-                <span className="text-[9px] text-gray-500 font-mono">
-                  {settings.notificationTime}
-                </span>
-              </div>
-              <p className="text-xs font-serif leading-relaxed text-gray-100">
-                "{notificationToast.message}"
-              </p>
-              <span className="text-[9px] text-gold-accent/80 font-sans block pt-1 font-medium">
-                Toque para abrir o Salmo do Dia agora &rarr;
-              </span>
-            </div>
-            <button
-              id="notification-dismiss-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                setNotificationToast(prev => prev ? { ...prev, show: false } : null);
-              }}
-              className="p-1 rounded-full text-gray-400 hover:text-white"
+            <motion.div
+              id="simulated-notification-popup"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 rounded-3xl p-6 shadow-2xl border-2 border-gold-accent/40 flex flex-col gap-4 z-50"
             >
-              <X className="w-4 h-4" />
-            </button>
-          </motion.div>
+              <button
+                id="notification-dismiss-btn"
+                onClick={() => setNotificationToast(prev => prev ? { ...prev, show: false } : null)}
+                className="absolute top-4 right-4 p-2 rounded-full text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-gradient-to-tr from-gold-accent to-amber-600 rounded-2xl text-white shadow-md">
+                  <Bell className="w-6 h-6 animate-bounce" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-mono text-gold-accent font-bold uppercase tracking-wider block">
+                    Salmo do Dia • Notificação
+                  </span>
+                  <span className="text-[11px] text-gray-400 font-mono">
+                    {notificationToast.timeString || settings.notificationTime}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 border-t border-gray-100 dark:border-slate-800 pt-3">
+                <h3 className="font-serif font-bold text-xl text-gray-900 dark:text-white leading-snug">
+                  {notificationToast.title}
+                </h3>
+                <p className="text-sm font-serif leading-relaxed text-gray-600 dark:text-gray-300 italic">
+                  "{notificationToast.body}"
+                </p>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row gap-2.5">
+                <button
+                  id="notification-open-psalm-btn"
+                  onClick={() => {
+                    setNotificationToast(prev => prev ? { ...prev, show: false } : null);
+                    handleOpenPsalmReader(notificationToast.psalmNumber);
+                  }}
+                  className="flex-1 py-3 px-4 bg-gradient-to-r from-gold-accent to-amber-600 text-white rounded-xl text-xs font-display font-semibold hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Ler Salmo do Dia Agora
+                </button>
+                <button
+                  id="notification-close-btn"
+                  onClick={() => setNotificationToast(prev => prev ? { ...prev, show: false } : null)}
+                  className="py-3 px-4 bg-gray-100 dark:bg-slate-800 text-gray-600 dark:text-gray-300 rounded-xl text-xs font-display font-semibold hover:bg-gray-200 dark:hover:bg-slate-700 transition-all cursor-pointer"
+                >
+                  Fechar
+                </button>
+              </div>
+            </motion.div>
+          </div>
         )}
       </AnimatePresence>
+
+      {/* Audio TTS Player overlay control bar */}
+      {selectedPsalm && playerState.currentPsalmNumber && (
+        <AudioPlayer
+          psalm={selectedPsalm}
+          settings={settings}
+          onUpdateSettings={handleUpdateSettings}
+          playerState={playerState}
+          onStartNextPsalm={(nextNum) => handleStartPsalmAudio(nextNum, 0)}
+          onClose={() => {
+            narrationEngine.stop();
+            setPlayerState((prev) => ({ ...prev, currentPsalmNumber: null }));
+          }}
+        />
+      )}
 
       {/* Google AdMob Banner Simulation (Requirement 1) */}
       {!settings.isPremium && (

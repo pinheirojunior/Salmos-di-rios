@@ -1,6 +1,6 @@
 {
   "name": "Salmo do Dia",
-  "description": "Aproxima você da Palavra de Deus todos os dias com leitura e áudio de Salmos.",
+  "description": "Aproxima você da Palavra de Deus todos os dias com leitura e devocionais dos Salmos.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

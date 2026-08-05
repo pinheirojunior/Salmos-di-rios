@@ -72,7 +72,7 @@ export default function ImmersiveReader({
           <button
             id="reader-back-btn"
             onClick={onClose}
-            className="p-2.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200 transition-colors"
+            className="p-2.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200 transition-colors cursor-pointer"
             title="Voltar para a tela inicial"
           >
             <ArrowLeft className="w-5 h-5" />
@@ -95,13 +95,15 @@ export default function ImmersiveReader({
             onClick={() => {
               if (playerState.isPlaying && !playerState.isPaused && playerState.currentPsalmNumber === psalm.number) {
                 onPauseAudio();
+              } else if (playerState.isPlaying && playerState.isPaused && playerState.currentPsalmNumber === psalm.number) {
+                onResumeAudio?.();
               } else {
                 onStartAudio();
               }
             }}
-            className={`p-2.5 rounded-full border transition-all flex items-center gap-1.5 text-xs font-medium ${
+            className={`p-2.5 rounded-full border transition-all flex items-center gap-1.5 text-xs font-medium cursor-pointer ${
               playerState.isPlaying && !playerState.isPaused && playerState.currentPsalmNumber === psalm.number
-                ? "bg-gold-accent/15 border-gold-accent text-gold-accent"
+                ? "bg-amber-100 dark:bg-amber-950/40 border-gold-accent text-amber-800 dark:text-gold-accent font-bold shadow-sm"
                 : "bg-transparent border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-slate-800"
             }`}
             title="Ouvir Narração do Salmo"
@@ -123,7 +125,7 @@ export default function ImmersiveReader({
           <button
             id="reader-favorite-btn"
             onClick={onToggleFavorite}
-            className={`p-2.5 rounded-full border transition-all ${
+            className={`p-2.5 rounded-full border transition-all cursor-pointer ${
               isFavorite
                 ? "bg-red-50 dark:bg-red-950/20 border-red-200 text-red-500"
                 : "bg-transparent border-gray-200 dark:border-gray-800 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-50 dark:hover:bg-slate-800"
@@ -138,7 +140,7 @@ export default function ImmersiveReader({
             <button
               id="reader-size-decrease"
               onClick={() => onUpdateSettings({ fontSizeMultiplier: Math.max(0.85, settings.fontSizeMultiplier - 0.15) })}
-              className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xs font-bold"
+              className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xs font-bold cursor-pointer"
               disabled={settings.fontSizeMultiplier <= 0.85}
               title="Diminuir tamanho da letra"
             >
@@ -147,7 +149,7 @@ export default function ImmersiveReader({
             <button
               id="reader-size-increase"
               onClick={() => onUpdateSettings({ fontSizeMultiplier: Math.min(1.45, settings.fontSizeMultiplier + 0.15) })}
-              className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xs font-bold"
+              className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xs font-bold cursor-pointer"
               disabled={settings.fontSizeMultiplier >= 1.45}
               title="Aumentar tamanho da letra"
             >
@@ -160,16 +162,16 @@ export default function ImmersiveReader({
       {/* Scripture Canvas Content */}
       <main className="flex-1 max-w-2xl mx-auto w-full px-6 py-12 sm:py-16 md:py-20 flex flex-col justify-start">
         {/* Intro theological Theme Header */}
-        <div className="text-center mb-12 sm:mb-16 flex flex-col items-center">
+        <div className="text-center mb-10 sm:mb-14 flex flex-col items-center">
           <Sparkles className="w-8 h-8 text-gold-accent mx-auto mb-4 opacity-80" />
           <h2 className="font-serif italic text-xl sm:text-2xl text-gray-600 dark:text-gray-400 leading-relaxed px-4">
             "{psalm.theme}"
           </h2>
-          <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-gold-accent to-transparent mx-auto mt-6 mb-8"></div>
-          
-          {/* Button to listen to the whole psalm */}
+          <div className="w-16 h-0.5 bg-gradient-to-r from-transparent via-gold-accent to-transparent mx-auto mt-6 mb-8" />
+
+          {/* Dedicated Hero Audio Button */}
           <button
-            id="immersive-audio-btn"
+            id="immersive-audio-hero-btn"
             onClick={() => {
               if (playerState.currentPsalmNumber === psalm.number && playerState.isPlaying) {
                 if (playerState.isPaused) {
@@ -181,29 +183,29 @@ export default function ImmersiveReader({
                 onStartAudio();
               }
             }}
-            className="w-full max-w-xs py-3 bg-white dark:bg-slate-800 text-gold-accent dark:text-amber-500 rounded-xl text-xs font-display font-semibold border border-gold-accent/25 dark:border-gray-700 hover:bg-gold-cream dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+            className="w-full max-w-xs py-3 bg-white dark:bg-slate-800 text-amber-900 dark:text-amber-200 rounded-2xl text-xs font-display font-semibold border border-gold-accent/30 dark:border-slate-700 hover:bg-amber-50 dark:hover:bg-slate-700 shadow-sm hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             {playerState.isPlaying && !playerState.isPaused && playerState.currentPsalmNumber === psalm.number ? (
               <>
-                <Pause className="w-4 h-4" />
-                Pausar áudio
+                <Pause className="w-4 h-4 text-amber-600 dark:text-gold-accent" />
+                Pausar Narração
               </>
             ) : playerState.isPlaying && playerState.isPaused && playerState.currentPsalmNumber === psalm.number ? (
               <>
-                <Play className="w-4 h-4" />
-                Retomar áudio
+                <Play className="w-4 h-4 text-amber-600 dark:text-gold-accent" />
+                Continuar Narração
               </>
             ) : (
               <>
-                <Volume2 className="w-4 h-4" />
-                Ouvir capítulo inteiro
+                <Volume2 className="w-4 h-4 text-amber-600 dark:text-gold-accent" />
+                Ouvir Capítulo Inteiro
               </>
             )}
           </button>
         </div>
 
         {/* Verses stream */}
-        <div className="space-y-8 font-serif select-text selection:bg-gold-accent/20">
+        <div className="space-y-6 font-serif select-text selection:bg-gold-accent/20">
           {psalm.verses.map((verse, index) => {
             const isActive =
               playerState.isPlaying &&
@@ -217,13 +219,12 @@ export default function ImmersiveReader({
                   verseRefs.current[index] = el;
                 }}
                 id={`reader-verse-${verse.number}`}
-                className={`p-4 rounded-2xl transition-all duration-500 flex items-center gap-4 border border-transparent ${
+                className={`p-4 rounded-2xl transition-all duration-300 flex items-center gap-4 border border-transparent ${
                   isActive
-                    ? "bg-gradient-to-r from-amber-50/70 to-yellow-50/10 dark:from-amber-950/20 dark:to-transparent border-l-4 border-l-gold-accent border-gold-accent/15 shadow-sm translate-x-1"
+                    ? "bg-amber-500/10 dark:bg-amber-950/30 border-l-4 border-l-gold-accent border-gold-accent/20 shadow-sm translate-x-1"
                     : "hover:bg-black/[0.01] dark:hover:bg-white/[0.01]"
                 }`}
                 animate={{
-                  opacity: isActive ? 1 : 0.85,
                   scale: isActive ? 1.01 : 1,
                 }}
               >
@@ -237,7 +238,7 @@ export default function ImmersiveReader({
                   {verse.text}
                 </p>
 
-                {/* Play single verse button (touch target >= 44px) */}
+                {/* Single verse audio playback trigger button */}
                 <button
                   id={`play-verse-btn-${verse.number}`}
                   onClick={() => {
@@ -247,17 +248,17 @@ export default function ImmersiveReader({
                       onStartAudio(index, true);
                     }
                   }}
-                  className={`h-11 w-11 rounded-full border flex items-center justify-center transition-all duration-300 flex-shrink-0 cursor-pointer ${
+                  className={`h-9 w-9 rounded-full border flex items-center justify-center transition-all flex-shrink-0 cursor-pointer ${
                     isActive && !playerState.isPaused
-                      ? "bg-gold-accent text-white border-gold-accent shadow-md shadow-gold-accent/20 scale-105"
-                      : "bg-white dark:bg-slate-800 border-gold-accent/15 dark:border-gray-700 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-700 hover:border-gold-accent/40"
+                      ? "bg-gold-accent text-white border-gold-accent shadow-md scale-105"
+                      : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-amber-600 dark:text-gold-accent hover:bg-amber-50 dark:hover:bg-slate-700"
                   }`}
                   title={`Ouvir apenas o versículo ${verse.number}`}
                 >
                   {isActive && !playerState.isPaused ? (
-                    <Pause className="w-4 h-4" />
+                    <Pause className="w-3.5 h-3.5" />
                   ) : (
-                    <Play className="w-4 h-4 translate-x-0.5" />
+                    <Play className="w-3.5 h-3.5 translate-x-0.5" />
                   )}
                 </button>
               </motion.div>

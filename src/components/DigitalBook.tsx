@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Book, ChevronLeft, ChevronRight, Play, Sparkles, Heart, RefreshCw, Layers } from "lucide-react";
+import { Book, ChevronLeft, ChevronRight, Sparkles, Heart, RefreshCw, Layers, Volume2 } from "lucide-react";
 import { Psalm, AppSettings } from "../types";
 import { psalmsMetadataList } from "../data/psalmsMetadata";
 import { motion, AnimatePresence } from "motion/react";
@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "motion/react";
 interface DigitalBookProps {
   settings: AppSettings;
   onOpenImmersiveReader: (num: number) => void;
-  onStartAudio: (number: number, verseIndex?: number, isSingleVerseMode?: boolean) => void;
+  onStartAudio?: (num: number) => void;
   favorites: number[];
   onToggleFavorite: (num: number, e: React.MouseEvent) => void;
   fetchPsalmText?: (number: number, silent?: boolean) => Promise<Psalm | null>;
@@ -336,19 +336,21 @@ export default function DigitalBook({
 
                   {/* Actions under reading page */}
                   <div className="grid grid-cols-2 gap-3 pt-4 border-t border-gold-accent/10 dark:border-gray-800">
-                    <button
-                      id="book-page-start-audio-btn"
-                      onClick={() => onStartAudio(selectedChapter)}
-                      className="w-full py-2.5 bg-white dark:bg-slate-800 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-700 rounded-xl text-xs font-display font-bold border border-gold-accent/25 dark:border-gray-700 shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                    >
-                      <Play className="w-3.5 h-3.5 translate-x-0.5" />
-                      Ouvir Narração
-                    </button>
+                    {onStartAudio && (
+                      <button
+                        id="book-page-start-audio-btn"
+                        onClick={() => onStartAudio(selectedChapter)}
+                        className="w-full py-2.5 bg-white dark:bg-slate-800 text-gold-accent hover:bg-gold-cream dark:hover:bg-slate-700 rounded-xl text-xs font-display font-bold border border-gold-accent/25 dark:border-gray-700 shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                        Ouvir Narração
+                      </button>
+                    )}
 
                     <button
                       id="book-page-immersive-reader-btn"
                       onClick={() => onOpenImmersiveReader(selectedChapter)}
-                      className="w-full py-2.5 bg-[#d4af37] text-[#231209] hover:bg-[#c19d2f] rounded-xl text-xs font-display font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      className={`py-2.5 bg-[#d4af37] text-[#231209] hover:bg-[#c19d2f] rounded-xl text-xs font-display font-bold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${onStartAudio ? "w-full" : "col-span-2"}`}
                     >
                       <Layers className="w-3.5 h-3.5" />
                       Modo Imersivo
