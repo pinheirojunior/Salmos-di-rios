@@ -61,7 +61,7 @@ export default function AboutModal({ onClose }: AboutModalProps) {
               Principais Recursos
             </h4>
             <ul className="list-disc pl-5 space-y-1 text-xs font-sans text-gray-500 dark:text-gray-400">
-              <li><strong>Salmo do Dia:</strong> Uma mensagem inspiradora selecionada para guiar suas manhãs.</li>
+              <li><strong>Salmo Diário:</strong> Uma mensagem inspiradora selecionada para guiar suas manhãs.</li>
               <li><strong>Narração Soleme:</strong> Áudio imersivo narrado de forma calma e solene.</li>
               <li><strong>Livro Sagrado Digital:</strong> Navegação intuitiva por todos os 150 Salmos.</li>
               <li><strong>Personalização Completa:</strong> Ajustes de voz, velocidade e tamanho de letra.</li>

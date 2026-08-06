@@ -1,6 +1,6 @@
 {
 	"appId": "com.salmododia.app",
-	"appName": "Salmo do Dia",
+	"appName": "Salmos Diários",
 	"webDir": "dist",
 	"server": {
 		"androidScheme": "https"

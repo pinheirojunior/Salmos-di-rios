@@ -354,6 +354,19 @@ export default function App() {
         });
       }
     );
+
+    notificationService.setOnActionCallback(() => {
+      setActiveTab("inicio");
+      const dailyNum = dailyPsalmState.currentDailyPsalm || 23;
+      if (dailyNum) {
+        fetchPsalmText(dailyNum).then((psalm) => {
+          if (psalm) {
+            setSelectedPsalm(psalm);
+            setIsReaderOpen(true);
+          }
+        });
+      }
+    });
   }, [dailyPsalmState.currentDailyPsalm, settings]);
 
   // Handle URL launch actions from notifications (e.g. ?action=read-daily-psalm)
@@ -747,7 +760,7 @@ export default function App() {
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] font-mono tracking-widest text-gold-accent uppercase font-bold bg-amber-50 dark:bg-slate-800/80 border border-gold-accent/25 px-2.5 py-1 rounded-full flex items-center gap-1">
                       {displayedHomePsalmNumber === dailyPsalmNumber ? (
-                        "Salmo do Dia"
+                        "Salmos Diários"
                       ) : (
                         <>
                           <Shuffle className="w-3 h-3 inline" /> Salmo #{displayedHomePsalmNumber}
@@ -988,7 +1001,7 @@ export default function App() {
                     Nenhum Salmo favorito salvo
                   </h3>
                   <p className="text-xs text-gray-400 dark:text-gray-500 max-w-xs mx-auto px-4 leading-relaxed">
-                    Você pode salvar Salmos de sua preferência clicando no ícone de coração no Salmo do Dia ou na listagem completa.
+                    Você pode salvar Salmos de sua preferência clicando no ícone de coração nos Salmos Diários ou na listagem completa.
                   </p>
                 </div>
               )}
@@ -1139,7 +1152,7 @@ export default function App() {
                 </div>
                 <div>
                   <span className="text-[10px] font-mono text-gold-accent font-bold uppercase tracking-wider block">
-                    Salmo do Dia • Notificação
+                    Salmos Diários • Notificação
                   </span>
                   <span className="text-[11px] text-gray-400 font-mono">
                     {notificationToast.timeString || settings.notificationTime}
@@ -1166,7 +1179,7 @@ export default function App() {
                   className="flex-1 py-3 px-4 bg-gradient-to-r from-gold-accent to-amber-600 text-white rounded-xl text-xs font-display font-semibold hover:shadow-lg hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <BookOpen className="w-4 h-4" />
-                  Ler Salmo do Dia Agora
+                  Ler Salmos Diários Agora
                 </button>
                 <button
                   id="notification-close-btn"

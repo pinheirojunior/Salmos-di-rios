@@ -114,7 +114,7 @@ export default function SettingsModal({
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 50, opacity: 0 }}
           transition={{ type: "spring", damping: 25, stiffness: 180 }}
-          className="bg-white dark:bg-slate-900 border border-gold-accent/25 dark:border-slate-800 rounded-3xl max-w-md w-full max-h-[85vh] overflow-y-auto shadow-2xl p-6 space-y-6 scrollbar-thin"
+          className="bg-white dark:bg-slate-900 border border-gold-accent/25 dark:border-slate-800 rounded-3xl max-w-md w-full max-h-[88vh] overflow-y-auto shadow-2xl p-4 sm:p-6 space-y-5 sm:space-y-6 scrollbar-thin"
         >
           {children}
         </motion.div>
@@ -219,22 +219,22 @@ export default function SettingsModal({
             <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">
               Seleção de Voz do Aplicativo
             </span>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 xs:grid-cols-2 gap-2.5">
               {/* Voz Masculina */}
               <button
                 type="button"
                 id="settings-voice-masculine"
                 onClick={() => onUpdateSettings({ voiceGender: "masculine" })}
-                className={`p-3.5 text-left rounded-xl border text-xs transition-all cursor-pointer ${
+                className={`p-3 text-left rounded-xl border text-xs transition-all cursor-pointer min-h-[44px] ${
                   settings.voiceGender === "masculine"
                     ? "bg-amber-50 dark:bg-amber-950/40 border-gold-accent text-amber-900 dark:text-amber-200 font-bold shadow-sm"
                     : "bg-gray-50 dark:bg-slate-950 border-gray-100 dark:border-slate-800 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-700"
                 }`}
               >
-                <div className="font-bold text-sm flex items-center gap-1.5">
+                <div className="font-bold text-sm flex items-center gap-1.5 leading-snug">
                   👨 Voz Masculina
                 </div>
-                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5">
+                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5 leading-tight">
                   Leitura grave, serena e solene
                 </div>
               </button>
@@ -244,16 +244,16 @@ export default function SettingsModal({
                 type="button"
                 id="settings-voice-feminine"
                 onClick={() => onUpdateSettings({ voiceGender: "feminine" })}
-                className={`p-3.5 text-left rounded-xl border text-xs transition-all cursor-pointer ${
+                className={`p-3 text-left rounded-xl border text-xs transition-all cursor-pointer min-h-[44px] ${
                   settings.voiceGender === "feminine"
                     ? "bg-amber-50 dark:bg-amber-950/40 border-gold-accent text-amber-900 dark:text-amber-200 font-bold shadow-sm"
                     : "bg-gray-50 dark:bg-slate-950 border-gray-100 dark:border-slate-800 text-gray-700 dark:text-gray-300 hover:border-gray-300 dark:hover:border-slate-700"
                 }`}
               >
-                <div className="font-bold text-sm flex items-center gap-1.5">
+                <div className="font-bold text-sm flex items-center gap-1.5 leading-snug">
                   👩 Voz Feminina
                 </div>
-                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5">
+                <div className="text-[10px] opacity-75 font-serif font-normal mt-0.5 leading-tight">
                   Leitura clara, suave e acolhedora
                 </div>
               </button>
@@ -332,15 +332,15 @@ export default function SettingsModal({
           <div className="space-y-3 bg-gray-50/70 dark:bg-slate-950/70 p-3.5 rounded-2xl border border-gray-100 dark:border-slate-800/80">
             {/* Morning Notification slot */}
             <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-200/50 dark:border-slate-800/50">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <input
                   id="settings-enable-morning-checkbox"
                   type="checkbox"
                   checked={tempEnableMorning}
                   onChange={(e) => setTempEnableMorning(e.target.checked)}
-                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer flex-shrink-0"
                 />
-                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1 truncate">
                   🌅 Matinal
                 </span>
               </div>
@@ -350,21 +350,21 @@ export default function SettingsModal({
                 disabled={!tempEnableMorning}
                 value={tempMorningTime}
                 onChange={(e) => setTempMorningTime(e.target.value)}
-                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40 flex-shrink-0"
               />
             </div>
 
             {/* Afternoon Notification slot */}
             <div className="flex items-center justify-between gap-3 pb-2 border-b border-gray-200/50 dark:border-slate-800/50">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <input
                   id="settings-enable-afternoon-checkbox"
                   type="checkbox"
                   checked={tempEnableAfternoon}
                   onChange={(e) => setTempEnableAfternoon(e.target.checked)}
-                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer flex-shrink-0"
                 />
-                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1 truncate">
                   📖 Tarde
                 </span>
               </div>
@@ -374,21 +374,21 @@ export default function SettingsModal({
                 disabled={!tempEnableAfternoon}
                 value={tempAfternoonTime}
                 onChange={(e) => setTempAfternoonTime(e.target.value)}
-                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40 flex-shrink-0"
               />
             </div>
 
             {/* Evening Notification slot */}
             <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <input
                   id="settings-enable-evening-checkbox"
                   type="checkbox"
                   checked={tempEnableEvening}
                   onChange={(e) => setTempEnableEvening(e.target.checked)}
-                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer"
+                  className="w-4 h-4 text-gold-accent rounded accent-gold-accent cursor-pointer flex-shrink-0"
                 />
-                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1">
+                <span className="text-xs text-gray-700 dark:text-gray-300 font-semibold flex items-center gap-1 truncate">
                   🌙 Noite
                 </span>
               </div>
@@ -398,7 +398,7 @@ export default function SettingsModal({
                 disabled={!tempEnableEvening}
                 value={tempEveningTime}
                 onChange={(e) => setTempEveningTime(e.target.value)}
-                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40"
+                className="bg-white dark:bg-slate-900 text-gray-800 dark:text-gray-100 border border-gold-accent/20 dark:border-slate-800 px-3 py-1 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent font-mono text-xs disabled:opacity-40 flex-shrink-0"
               />
             </div>
 
@@ -463,7 +463,7 @@ export default function SettingsModal({
             {/* Alterar Nome option */}
             <div className="space-y-2">
               <span className="text-xs text-gray-600 dark:text-gray-400 block font-semibold">Alterar Seu Nome</span>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2 w-full">
                 <input
                   id="settings-change-name-input"
                   type="text"
@@ -473,10 +473,11 @@ export default function SettingsModal({
                     setNameSaved(false);
                   }}
                   placeholder="Seu nome"
-                  className="bg-gray-50 dark:bg-slate-950 text-gray-800 dark:text-gray-100 border border-gold-accent/15 dark:border-slate-850 px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent text-xs flex-1 transition-colors"
+                  className="bg-gray-50 dark:bg-slate-950 text-gray-800 dark:text-gray-100 border border-gold-accent/15 dark:border-slate-850 px-3 py-2 rounded-xl focus:outline-none focus:ring-1 focus:ring-gold-accent text-xs min-w-0 flex-1 transition-colors min-h-[42px]"
                 />
                 <button
                   id="settings-save-name-btn"
+                  type="button"
                   onClick={() => {
                     if (tempName.trim()) {
                       onUpdateSettings({ userName: tempName.trim() });
@@ -484,10 +485,20 @@ export default function SettingsModal({
                       setTimeout(() => setNameSaved(false), 2000);
                     }
                   }}
-                  className="bg-gold-accent hover:bg-amber-600 text-white px-3.5 py-2 rounded-xl cursor-pointer flex items-center justify-center transition-colors shadow-sm"
+                  className="bg-gold-accent hover:bg-amber-600 active:scale-95 text-white px-3.5 py-2 rounded-xl cursor-pointer flex items-center justify-center gap-1.5 text-xs font-bold flex-shrink-0 whitespace-nowrap transition-colors shadow-sm min-h-[42px]"
                   title="Salvar nome"
                 >
-                  {nameSaved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+                  {nameSaved ? (
+                    <>
+                      <Check className="w-4 h-4 flex-shrink-0" />
+                      <span>Salvo</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 flex-shrink-0" />
+                      <span>Salvar</span>
+                    </>
+                  )}
                 </button>
               </div>
               {nameSaved && (
